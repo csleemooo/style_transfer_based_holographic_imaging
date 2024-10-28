@@ -125,7 +125,7 @@ if args.data_name == 'MNIST':
         train_holo_list_style = [round(float(i), 3) for i in np.arange(0.3, 0.9, 0.1)]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(0.3, 0.9, 0.1)]
     transform_img = transforms.Compose([transforms.Resize([64, 64]), transforms.Grayscale(), transforms.ToTensor()])
-    dataset = torchvision.datasets.MNIST(root='./../../data', download=True, train=True, transform=transform_img)
+    dataset = torchvision.datasets.MNIST(root='/mnt/mooo/CS/style transfer based holographic imaging/data', download=True, train=True, transform=transform_img)
 
 elif args.data_name == 'polystyrene_bead':
     if 'single' in args.exp_name:
@@ -135,9 +135,9 @@ elif args.data_name == 'polystyrene_bead':
         train_holo_list_style = [round(float(i), 3) for i in np.arange(7, 11, 1)]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(11, 14, 1)]
     transform_img = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip()])
-    dataset = Holo_loader(root='./../../data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_style)    
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_style)    
     dataset_style = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-    dataset = Holo_loader(root='./../../data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_content)    
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_content)    
     dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     
 for i in tqdm(range(args.max_iter)):

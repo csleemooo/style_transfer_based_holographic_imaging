@@ -228,7 +228,7 @@ if args.data_name == 'MNIST':
     args.distance_normalize_constant = 0
     
     transform_img = transforms.Compose([transforms.Resize([64, 64]), transforms.Grayscale(), transforms.ToTensor()])
-    dataset = torchvision.datasets.MNIST(root='./../../data', download=True, train=True, transform=transform_img)
+    dataset = torchvision.datasets.MNIST(root='/mnt/mooo/CS/style transfer based holographic imaging/data', download=True, train=True, transform=transform_img)
     args.pixel_size = 1.5e-6
     args.phase_normalize = 1
     
@@ -247,9 +247,9 @@ elif args.data_name == 'polystyrene_bead':
     args.phase_normalize = 2*pi
     
     transform_img = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip()])
-    dataset = Holo_loader(root='./../../data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_style, return_distance=True)    
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_style, return_distance=True)    
     dataset_style = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-    dataset = Holo_loader(root='./../../data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
     dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     args.pixel_size = 6.5e-6
 
