@@ -19,7 +19,6 @@ from tqdm import tqdm
 import torch.nn.functional as F
 
 import net
-from sampler import InfiniteSamplerWrapper
 from function import adaptive_instance_normalization, coral
 import lpips
 
@@ -221,9 +220,7 @@ if args.data_name == 'MNIST':
     elif 'half_style' in args.exp_name:
         train_holo_list_style = [round(float(i), 3) for i in np.arange(0.3, 0.6, 0.1)]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(0.6, 0.9, 0.1)]
-    else:
-        train_holo_list_style = [round(float(i), 3) for i in np.arange(0.3, 0.9, 0.1)]
-        train_holo_list_content = [round(float(i), 3) for i in np.arange(0.3, 0.9, 0.1)]
+        
     args.distance_normalize = 1.0
     args.distance_normalize_constant = 0
     
