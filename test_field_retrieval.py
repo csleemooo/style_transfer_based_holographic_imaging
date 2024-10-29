@@ -19,6 +19,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 
 import net
+from sampler import InfiniteSamplerWrapper
 from function import adaptive_instance_normalization, coral
 import lpips
 
@@ -160,7 +161,7 @@ args = parser.parse_args()
 
 args.wavelength = 532e-9
 args.decoder = None
-# args.decoder='./experiments/%s/%s_style_transfer/decoder_iter_80000.pth.tar'%(args.data_name, args.exp_name)
+# args.decoder='./experiments/%s/%s/decoder_iter_60000.pth.tar'%(args.data_name, args.exp_name)
 
 device = torch.device(args.device)
 args.save_dir = args.save_dir + '/%s/%s_field_retrieval'%(args.data_name, args.exp_name)
@@ -220,7 +221,9 @@ if args.data_name == 'MNIST':
     elif 'half_style' in args.exp_name:
         train_holo_list_style = [round(float(i), 3) for i in np.arange(0.3, 0.6, 0.1)]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(0.6, 0.9, 0.1)]
-        
+    else:
+        train_holo_list_style = [round(float(i), 3) for i in np.arange(0.3, 0.9, 0.1)]
+        train_holo_list_content = [round(float(i), 3) for i in np.arange(0.3, 0.9, 0.1)]
     args.distance_normalize = 1.0
     args.distance_normalize_constant = 0
     
@@ -233,7 +236,7 @@ elif args.data_name == 'polystyrene_bead':
     if 'single' in args.exp_name:
         train_holo_list_style = [7]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(9, 13, 1)]
-    elif 'half_style' in args.exp_name:
+    else:
         train_holo_list_style = [round(float(i), 3) for i in np.arange(7, 11, 1)]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(11, 14, 1)]
             
@@ -246,17 +249,12 @@ elif args.data_name == 'polystyrene_bead':
     transform_img = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip()])
     dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_style, return_distance=True)    
     dataset_style = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='test_content', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
     dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     args.pixel_size = 6.5e-6
 
 model_forward = Holo_Generator(args).to(device)  # ASM, free-space propagator
-holo_weight_init=0
-weight_tuning_step = 10000
-holo_weight_final = args.holo_weight
-import lpips
-lpips_loss = lpips.LPIPS(net='vgg').to(device)
-mse_loss = nn.MSELoss() 
+
 for i in tqdm(range(args.max_iter)):
     if args.data_name == 'MNIST':
         style_holo, content_holo, distance_style, distance_content = mnist_loader(args, dataset, train_holo_list_style, train_holo_list_content, model_forward, device)
@@ -264,127 +262,45 @@ for i in tqdm(range(args.max_iter)):
         [style_holo, distance_style], [content_holo, distance_content]  = next(iter(dataset_style)), next(iter(dataset_content))
         distance_style = -args.distance_normalize_constant + distance_style.reshape([-1, 1, 1, 1]).to(args.device).float()/args.distance_normalize
         distance_content = -args.distance_normalize_constant + distance_content.reshape([-1, 1, 1, 1]).to(args.device).float()/args.distance_normalize
-    
-    style_images=torch.sqrt(style_holo).to(device).float().detach() #.repeat(1, 3, 1, 1)
-    content_images=torch.sqrt(content_holo).to(device).float().detach() #.repeat(1, 3, 1, 1)
-    
-    adjust_learning_rate(optimizer, iteration_count=i)
-    adjust_learning_rate(op_disc, iteration_count=i)
-    if args.unknown_distance:
-        loss_c, loss_s, c2s_amp, c2s_ph, style_re, distance_content, d_style_est = network(content_images, style_images, field_retrieval=True, unkonwn_distance=True)
-        distance_content = distance_content.view(-1 , 1, 1, 1)
-        
+  
+    c2s_amp_list, c2s_ph_list, amp_list, ph_list, prop_list = [], [], [], [], []
+    for j in range(min(args.batch_size, 8)):
+        with torch.no_grad():
+            if args.unknown_distance:
+                amplitude, phase, distance_content = field_retrieval(network, content_images[j:j+1], style_images[j:j+1], 1.0, True)
+                # print(distance_content.shape)
+            else:
+                amplitude, phase = field_retrieval(network, content_images[j:j+1], style_images[j:j+1], 1.0)
+                
+            amp_foc, ph_foc = model_forward(amplitude, phase*args.phase_normalize, -distance_style[j:j+1]-2*args.distance_normalize_constant, return_field=True)
+            if args.unknown_distance:
+                prop=model_forward(amplitude, phase*args.phase_normalize, distance_content-distance_style[j:j+1]-args.distance_normalize_constant).sqrt()
+            else:
+                prop=model_forward(amplitude, phase*args.phase_normalize, distance_content[j:j+1]-distance_style[j:j+1]-args.distance_normalize_constant).sqrt()
+                
+            c2s_amp_list.append(amplitude)
+            phase = unwrap(phase*args.phase_normalize)
+            phase /= torch.max(phase)
+            c2s_ph_list.append(phase)
+            
+            amp_list.append(amp_foc)
+            ph_foc = unwrap(ph_foc)
+            ph_foc /= torch.max(ph_foc)
+            ph_list.append(ph_foc)
+            
+            prop_list.append(prop)
     else:
-        loss_c, loss_s, c2s_amp, c2s_ph, style_re = network(content_images, style_images, field_retrieval=True)
         
-    c2s_ph = c2s_ph*args.phase_normalize
-    s2c_re = model_forward(c2s_amp, c2s_ph, distance_content-distance_style-args.distance_normalize_constant).sqrt()
-    s2c_foc = model_forward(c2s_amp, c2s_ph, -distance_style -2*args.distance_normalize_constant, complex_number=True)
-    
-    ## train discriminator and classifier  ##
-    
-    x_real, x_fake = torch.cat([style_images, content_images], dim=0), torch.cat([c2s_amp, s2c_re], dim=0)
-    
-    op_disc.zero_grad()
-    real_src, real_cls = disc(x_real)
-    fake_src, fake_cls = disc(x_fake.detach())
-    
-    loss_src = -torch.mean(real_src) + torch.mean(fake_src) 
-    loss_cls = cls_loss(real_cls, label)
-    
-    alph = torch.rand(x_real.size(0), 1, 1, 1).to(device)
-    x_hat = (alph * x_real.data + (1 - alph) * x_fake.data).requires_grad_(True)
-    out_src, _ = disc(x_hat)
-    loss_gp = gradient_penalty(out_src, x_hat, device)
-    
-    loss_disc = loss_src + loss_cls*args.cls_weight + loss_gp*10
-    
-    loss_disc.backward()
-    op_disc.step()
-    
-    ## train complex field generator  ##
-    
-    fake_src, fake_cls = disc(x_fake)
-    
-    loss_identity = lpips_loss.forward(style_images.repeat(1, 3, 1, 1), style_re.repeat(1, 3, 1, 1)).mean() + mse_loss(style_images, style_re)
-    loss_phy_con = lpips_loss.forward(content_images.repeat(1, 3, 1, 1), s2c_re.repeat(1, 3, 1, 1)).mean() + mse_loss(content_images, s2c_re)
-    loss_fake = -torch.mean(fake_src)
-    loss_cls = cls_loss(fake_cls, label)*args.cls_weight
-
-
-    loss_identity = loss_identity*args.identity_weight
-    loss_c = args.content_weight * loss_c
-    loss_s = args.style_weight * loss_s
-    loss_phy_con = args.holo_weight*loss_phy_con
-    loss_tv = tv_loss(s2c_foc, order=1)*args.tv_weight
-    loss = loss_c + loss_s + loss_phy_con + loss_identity + loss_tv + loss_fake + loss_cls
-
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-
-    ## record loss for each iteration
-    writer.add_scalar('loss_identity', loss_identity.item(), i + 1)
-    writer.add_scalar('loss_content', loss_c.item(), i + 1)
-    writer.add_scalar('loss_style', loss_s.item(), i + 1)
-    writer.add_scalar('loss_tv', loss_tv.item(), i + 1)
-    writer.add_scalar('loss_phy_con', loss_phy_con.item(), i + 1)
-    writer.add_scalar('loss_fake', loss_fake.item(), i + 1)
-    writer.add_scalar('loss_cls', loss_cls.item(), i + 1)
-        
-    if (i + 1) % args.vis_interval == 0 or (i + 1) % args.save_model_interval == 0 or (i + 1) == args.max_iter:
-        # args.holo_weight += inc
-        c2s_amp_list, c2s_ph_list, amp_list, ph_list, prop_list = [], [], [], [], []
-        for j in range(min(args.batch_size, 8)):
-            with torch.no_grad():
-                if args.unknown_distance:
-                    amplitude, phase, distance_content = field_retrieval(network, content_images[j:j+1], style_images[j:j+1], 1.0, True)
-                    # print(distance_content.shape)
-                else:
-                    amplitude, phase = field_retrieval(network, content_images[j:j+1], style_images[j:j+1], 1.0)
-                    
-                amp_foc, ph_foc = model_forward(amplitude, phase*args.phase_normalize, -distance_style[j:j+1]-2*args.distance_normalize_constant, return_field=True)
-                if args.unknown_distance:
-                    prop=model_forward(amplitude, phase*args.phase_normalize, distance_content-distance_style[j:j+1]-args.distance_normalize_constant).sqrt()
-                else:
-                    prop=model_forward(amplitude, phase*args.phase_normalize, distance_content[j:j+1]-distance_style[j:j+1]-args.distance_normalize_constant).sqrt()
-                    
-                c2s_amp_list.append(amplitude)
-                phase = unwrap(phase*args.phase_normalize)
-                phase /= torch.max(phase)
-                c2s_ph_list.append(phase)
-                
-                amp_list.append(amp_foc)
-                ph_foc = unwrap(ph_foc)
-                ph_foc /= torch.max(ph_foc)
-                ph_list.append(ph_foc)
-                
-                prop_list.append(prop)
-        else:
+        c2s_amp_list=torch.cat(c2s_amp_list, dim=0)
+        c2s_ph_list=torch.cat(c2s_ph_list, dim=0)
+        amp_list=torch.cat(amp_list, dim=0)
+        ph_list=torch.cat(ph_list, dim=0)
+        prop_list=torch.cat(prop_list, dim=0)
             
-            c2s_amp_list=torch.cat(c2s_amp_list, dim=0)
-            c2s_ph_list=torch.cat(c2s_ph_list, dim=0)
-            amp_list=torch.cat(amp_list, dim=0)
-            ph_list=torch.cat(ph_list, dim=0)
-            prop_list=torch.cat(prop_list, dim=0)
-            
-        writer.add_images('content', content_images[:8], i+1)
-        writer.add_images('style', style_images[:8], i+1)    
-        writer.add_images('c2s_amplitude', c2s_amp_list, i+1)
-        writer.add_images('c2s_phase', c2s_ph_list, i+1)
-        writer.add_images('c2s_amplitude_foc', amp_list, i+1)
-        writer.add_images('c2s_phase_foc', ph_list, i+1)
-        writer.add_images('prop', prop_list, i+1)
-        
-        if (i + 1) % args.save_model_interval == 0: 
-            state_dict = network.decoder.state_dict()
-            state_dict_ph = network.decoder_ph.state_dict()
-            for key in state_dict.keys():
-                state_dict[key] = state_dict[key].to(torch.device('cpu'))
-                state_dict_ph[key] = state_dict_ph[key].to(torch.device('cpu'))
-                
-            torch.save(state_dict, save_dir /
-                    'decoder_iter_{:d}.pth.tar'.format(i + 1))
-            torch.save(state_dict_ph, save_dir /
-                    'decoder_ph_iter_{:d}.pth.tar'.format(i + 1))
-writer.close()
+    writer.add_images('content', content_images[:8], i+1)
+    writer.add_images('style', style_images[:8], i+1)    
+    writer.add_images('c2s_amplitude', c2s_amp_list, i+1)
+    writer.add_images('c2s_phase', c2s_ph_list, i+1)
+    writer.add_images('c2s_amplitude_foc', amp_list, i+1)
+    writer.add_images('c2s_phase_foc', ph_list, i+1)
+    writer.add_images('prop', prop_list, i+1)

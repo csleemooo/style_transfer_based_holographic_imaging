@@ -151,7 +151,18 @@ class Net(nn.Module):
         # self.enc_5 = nn.Sequential(*enc_layers[31:44])  # relu4_1 -> relu5_1
         self.decoder = decoder
         self.decoder_ph = decoder_ph
-        self.distance_g = distance_g
+        # self.distance_g = distance_g
+        self.distance_g =  nn.Sequential(nn.AdaptiveAvgPool2d((7, 7)),
+                                         nn.Flatten(),
+                                         nn.Linear(512 * 7 * 7, 4096),
+                                         nn.ReLU(True),
+                                         nn.Dropout(p=0.5),
+                                         nn.Linear(4096, 4096),
+                                         nn.ReLU(True),
+                                         nn.Dropout(p=0.5),
+                                         nn.Linear(4096, 1),
+                                         nn.Sigmoid())
+        
         self.mse_loss = nn.MSELoss()
         
         self.eca = eca_layer(channel=512)
@@ -213,8 +224,10 @@ class Net(nn.Module):
         if field_retrieval:
             g_t_phase = self.decoder_ph(t)
             if unkonwn_distance:
-                d_content = self.distance_g(calc_mean_std(content_feat))
-                d_style = self.distance_g(calc_mean_std(style_feats[-1]))
+                # d_content = self.distance_g(calc_mean_std(content_feat))
+                # d_style = self.distance_g(calc_mean_std(style_feats[-1]))
+                d_content = self.distance_g(content_feat)
+                d_style = self.distance_g(style_feats[-1])
                 return loss_c, loss_s, g_t, g_t_phase, style_re, d_content, d_style
             else:    
                 return loss_c, loss_s, g_t, g_t_phase, style_re
@@ -234,7 +247,7 @@ class Net(nn.Module):
         g_t_phase = self.decoder_ph(t)
         
         if unknown_distance:
-            return g_t, g_t_phase, self.distance_g(calc_mean_std(content_feat.repeat(2, 1, 1, 1)))[:1, :]
+            return g_t, g_t_phase, self.distance_g(content_feat.repeat(2, 1, 1, 1))[:1, :] # self.distance_g(calc_mean_std(content_feat.repeat(2, 1, 1, 1)))[:1, :]
         else:
             return g_t, g_t_phase
 
@@ -282,6 +295,8 @@ class Distance_G(nn.Module):
         self.relu = nn.ReLU()
 
         self.out=nn.Linear(in_features=in_fc//2, out_features=1)
+        
+        self.initialize_weights()
 
     def forward(self, m_s):
         m, s = m_s
@@ -301,3 +316,22 @@ class Distance_G(nn.Module):
         out = F.sigmoid(self.out(x))
         # out = self.out(x)
         return out
+    
+    def initialize_weights(self):
+        # track all layers
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight)
+
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
