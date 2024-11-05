@@ -80,7 +80,7 @@ decoder = nn.Sequential(
     nn.Conv2d(64, 64, (3, 3)),
     nn.ReLU(),
     nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(64, 1, (3, 3)),
+    nn.Conv2d(64, 2, (3, 3)),
 )
 
 vgg = nn.Sequential(
@@ -151,17 +151,16 @@ class Net(nn.Module):
         # self.enc_5 = nn.Sequential(*enc_layers[31:44])  # relu4_1 -> relu5_1
         self.decoder = decoder
         self.decoder_ph = decoder_ph
-        # self.distance_g = distance_g
-        self.distance_g =  nn.Sequential(nn.AdaptiveAvgPool2d((7, 7)),
-                                         nn.Flatten(),
-                                         nn.Linear(512 * 7 * 7, 4096),
-                                         nn.ReLU(True),
-                                         nn.Dropout(p=0.5),
-                                         nn.Linear(4096, 4096),
-                                         nn.ReLU(True),
-                                         nn.Dropout(p=0.5),
-                                         nn.Linear(4096, 1),
-                                         nn.Sigmoid())
+        self.distance_g = distance_g
+        # self.distance_g =  nn.Sequential(nn.AdaptiveAvgPool2d((7, 7)),
+        #                                  nn.Linear(512 * 7 * 7, 4096),
+        #                                  nn.ReLU(True),
+        #                                  nn.Dropout(p=dropout),
+        #                                  nn.Linear(4096, 4096),
+        #                                  nn.ReLU(True),
+        #                                  nn.Dropout(p=dropout),
+        #                                  nn.Linear(4096, 1),
+        #                                  nn.Sigmoid())
         
         self.mse_loss = nn.MSELoss()
         
@@ -210,24 +209,29 @@ class Net(nn.Module):
 
         # style4recon = self.eca(style_feats[-1])
 
-        style_re = self.decoder(style_feats[-1])
+        style_re = self.decoder(style_feats[-1])[:, :1]
         g_t = self.decoder(t)  # content diffraction pattern -> style diffraction pattern
+        g_t_phase = g_t[:, 1:]
+        g_t = g_t[:, :1]
         # g_t = self.decoder(torch.cat([t, style4recon], dim=1))  # content diffraction pattern -> style diffraction pattern
         g_t_feats = self.encode_with_intermediate(g_t)
 
-        loss_c = self.calc_content_loss(g_t_feats[-1], t)
-        loss_s = self.calc_style_loss(g_t_feats[0], style_feats[0])
-        i_start = 1 if self.n_layer==4 else 2
-        
-        for i in range(i_start, self.n_layer):
+        loss_c = self.calc_content_loss(g_t_feats[-1], t)  # calculate content loss
+        loss_s = self.calc_style_loss(g_t_feats[0], style_feats[0])  # calculate style loss
+        for i in range(1, self.n_layer):
             loss_s += self.calc_style_loss(g_t_feats[i], style_feats[i])
+            
         if field_retrieval:
-            g_t_phase = self.decoder_ph(t)
+            # g_t_phase = self.decoder_ph(t)
+            # g_t_feats = self.encode_with_intermediate(g_t_phase)  # calculate style loss for phase
+            # for i in range(self.n_layer):
+            #     loss_s += self.calc_style_loss(g_t_feats[i], style_feats[i])
+            
             if unkonwn_distance:
-                # d_content = self.distance_g(calc_mean_std(content_feat))
-                # d_style = self.distance_g(calc_mean_std(style_feats[-1]))
-                d_content = self.distance_g(content_feat)
-                d_style = self.distance_g(style_feats[-1])
+                d_content = self.distance_g(calc_mean_std(content_feat))
+                d_style = self.distance_g(calc_mean_std(style_feats[-1]))
+                # d_content = self.distance_g(content_feat)
+                # d_style = self.distance_g(style_feats[-1])
                 return loss_c, loss_s, g_t, g_t_phase, style_re, d_content, d_style
             else:    
                 return loss_c, loss_s, g_t, g_t_phase, style_re
@@ -244,10 +248,12 @@ class Net(nn.Module):
         # style4recon = self.eca(style_feats)
 
         g_t = self.decoder(t)  # content diffraction pattern -> style diffraction pattern
-        g_t_phase = self.decoder_ph(t)
+        g_t_phase = g_t[:, 1:]
+        g_t = g_t[:, :1]
+        # g_t_phase = self.decoder_ph(t)
         
         if unknown_distance:
-            return g_t, g_t_phase, self.distance_g(content_feat.repeat(2, 1, 1, 1))[:1, :] # self.distance_g(calc_mean_std(content_feat.repeat(2, 1, 1, 1)))[:1, :]
+            return g_t, g_t_phase, self.distance_g(calc_mean_std(content_feat.repeat(2, 1, 1, 1)))[:1, :] # self.distance_g(content_feat.repeat(2, 1, 1, 1))[:1, :]
         else:
             return g_t, g_t_phase
 
@@ -285,13 +291,16 @@ class Distance_G(nn.Module):
     def __init__(self):
         super(Distance_G, self).__init__()
         in_fc = 512 * 2
-
+        dropout=0.1
         self.l1 = nn.Linear(in_features=in_fc, out_features=in_fc, bias=True)
         self.b1 = nn.BatchNorm1d(num_features=in_fc)
+        # self.b1 = nn.Dropout(p=dropout)
         self.l2 = nn.Linear(in_features=in_fc, out_features=in_fc, bias=True)
         self.b2 = nn.BatchNorm1d(num_features=in_fc)
+        # self.b2 = nn.Dropout(p=dropout)
         self.l3 = nn.Linear(in_features=in_fc, out_features=in_fc//2, bias=True)
         self.b3 = nn.BatchNorm1d(num_features=in_fc//2)
+        # self.b3 = nn.Dropout(p=dropout)
         self.relu = nn.ReLU()
 
         self.out=nn.Linear(in_features=in_fc//2, out_features=1)

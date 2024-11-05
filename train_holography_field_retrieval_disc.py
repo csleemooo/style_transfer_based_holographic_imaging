@@ -122,6 +122,14 @@ def label2onehot(labels, dim):
     return out
 ###############################################################################
 
+def weight_init_xavier_uniform(submodule):
+    if isinstance(submodule, torch.nn.Conv2d):
+        torch.nn.init.xavier_uniform_(submodule.weight)
+        submodule.bias.data.fill_(0.01)
+    elif isinstance(submodule, torch.nn.BatchNorm2d):
+        submodule.weight.data.fill_(1.0)
+        submodule.bias.data.zero_()
+
 
 parser = argparse.ArgumentParser()
 # Basic options
@@ -145,7 +153,7 @@ parser.add_argument('--batch_size', type=int, default=16)
 parser.add_argument('--style_weight', type=float, default=10.0)
 parser.add_argument('--content_weight', type=float, default=1.0)
 parser.add_argument('--tv_weight', type=float, default=10.0)
-parser.add_argument('--holo_weight', type=float, default=0.0)
+parser.add_argument('--holo_weight', type=float, default=10.0)
 parser.add_argument('--cls_weight', type=float, default=1.0)
 parser.add_argument('--identity_weight', type=float, default=0.0)
 parser.add_argument('--n_threads', type=int, default=4)
@@ -160,7 +168,7 @@ args = parser.parse_args()
 
 args.wavelength = 532e-9
 args.decoder = None
-# args.decoder='./experiments/%s/%s_style_transfer/decoder_iter_80000.pth.tar'%(args.data_name, args.exp_name)
+# args.decoder='./experiments/%s/%s/decoder_iter_60000.pth.tar'%(args.data_name, args.exp_name)
 
 device = torch.device(args.device)
 args.save_dir = args.save_dir + '/%s/%s_field_retrieval'%(args.data_name, args.exp_name)
@@ -177,17 +185,21 @@ writer = SummaryWriter(log_dir=str(log_dir))
 import copy
 decoder = net.decoder
 decoder_ph = copy.deepcopy(net.decoder)
+if args.decoder is not None:
+    decoder.load_state_dict(torch.load(args.decoder))
+else:
+    decoder.apply(weight_init_xavier_uniform)
+    decoder_ph.apply(weight_init_xavier_uniform)
+
 vgg = net.vgg
 
 state_dict = torch.load(args.vgg)
 state_dict['0.weight'] = state_dict['0.weight'].sum(dim=1, keepdim=True)
 vgg.load_state_dict(state_dict)
 
-if args.decoder is not None:
-    decoder.load_state_dict(torch.load(args.decoder))
-
 vgg_layer = 31 if args.n_layer==4 else 44
 vgg = nn.Sequential(*list(vgg.children())[:vgg_layer])
+
 args.image_size = 256 if args.data_name == 'polystyrene_bead' else 128
 disc = net.Discriminator(image_size=args.image_size, c_dim=2)
 op_disc = torch.optim.Adam(disc.parameters(), lr=args.lr)
@@ -203,7 +215,8 @@ if args.unknown_distance:
     
     distance_G = net.Distance_G()
     network = net.Net(vgg, decoder, decoder_ph, distance_G)
-    optimizer = torch.optim.Adam(chain(network.decoder.parameters(), network.decoder_ph.parameters(), network.distance_g.parameters()), lr=args.lr)
+    # optimizer = torch.optim.Adam(chain(network.decoder.parameters(), network.decoder_ph.parameters(), network.distance_g.parameters()), lr=args.lr)
+    optimizer = torch.optim.AdamW(chain(network.decoder.parameters(), network.decoder_ph.parameters(), network.distance_g.parameters()), lr=args.lr, weight_decay=1e-4)
 else:
     network = net.Net(vgg, decoder, decoder_ph)
     optimizer = torch.optim.Adam(chain(network.decoder.parameters(), network.decoder_ph.parameters()), lr=args.lr)
@@ -220,7 +233,7 @@ if args.data_name == 'MNIST':
     elif 'half_style' in args.exp_name:
         train_holo_list_style = [round(float(i), 3) for i in np.arange(0.3, 0.6, 0.1)]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(0.6, 0.9, 0.1)]
-        
+
     args.distance_normalize = 1.0
     args.distance_normalize_constant = 0
     
@@ -233,7 +246,7 @@ elif args.data_name == 'polystyrene_bead':
     if 'single' in args.exp_name:
         train_holo_list_style = [7]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(9, 13, 1)]
-    elif 'half_style' in args.exp_name:
+    else:
         train_holo_list_style = [round(float(i), 3) for i in np.arange(7, 11, 1)]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(11, 14, 1)]
             
@@ -251,9 +264,6 @@ elif args.data_name == 'polystyrene_bead':
     args.pixel_size = 6.5e-6
 
 model_forward = Holo_Generator(args).to(device)  # ASM, free-space propagator
-holo_weight_init=0
-weight_tuning_step = 10000
-holo_weight_final = args.holo_weight
 import lpips
 lpips_loss = lpips.LPIPS(net='vgg').to(device)
 mse_loss = nn.MSELoss() 
@@ -270,10 +280,16 @@ for i in tqdm(range(args.max_iter)):
     
     adjust_learning_rate(optimizer, iteration_count=i)
     adjust_learning_rate(op_disc, iteration_count=i)
+    
+    true_d = ','.join([str(round(i.item(), 4)) for i in distance_content])
+    writer.add_text('distance_true', true_d, i+1)
+    
     if args.unknown_distance:
+        
         loss_c, loss_s, c2s_amp, c2s_ph, style_re, distance_content, d_style_est = network(content_images, style_images, field_retrieval=True, unkonwn_distance=True)
         distance_content = distance_content.view(-1 , 1, 1, 1)
-        
+        pred_d = ','.join([str(round(i.item(), 4)) for i in distance_content])
+        writer.add_text('distance_predict', pred_d, i+1)
     else:
         loss_c, loss_s, c2s_amp, c2s_ph, style_re = network(content_images, style_images, field_retrieval=True)
         
@@ -295,9 +311,9 @@ for i in tqdm(range(args.max_iter)):
     alph = torch.rand(x_real.size(0), 1, 1, 1).to(device)
     x_hat = (alph * x_real.data + (1 - alph) * x_fake.data).requires_grad_(True)
     out_src, _ = disc(x_hat)
-    loss_gp = gradient_penalty(out_src, x_hat, device)
+    loss_gp = gradient_penalty(out_src, x_hat, device)*10
     
-    loss_disc = loss_src + loss_cls*args.cls_weight + loss_gp*10
+    loss_disc = loss_src + loss_cls*args.cls_weight + loss_gp
     
     loss_disc.backward()
     op_disc.step()
@@ -308,6 +324,7 @@ for i in tqdm(range(args.max_iter)):
     
     loss_identity = lpips_loss.forward(style_images.repeat(1, 3, 1, 1), style_re.repeat(1, 3, 1, 1)).mean() + mse_loss(style_images, style_re)
     loss_phy_con = lpips_loss.forward(content_images.repeat(1, 3, 1, 1), s2c_re.repeat(1, 3, 1, 1)).mean() + mse_loss(content_images, s2c_re)
+    
     loss_fake = -torch.mean(fake_src)
     loss_cls = cls_loss(fake_cls, label)*args.cls_weight
 
@@ -331,7 +348,8 @@ for i in tqdm(range(args.max_iter)):
     writer.add_scalar('loss_phy_con', loss_phy_con.item(), i + 1)
     writer.add_scalar('loss_fake', loss_fake.item(), i + 1)
     writer.add_scalar('loss_cls', loss_cls.item(), i + 1)
-        
+    writer.add_scalar('loss_gp', loss_gp.item(), i + 1)
+    
     if (i + 1) % args.vis_interval == 0 or (i + 1) % args.save_model_interval == 0 or (i + 1) == args.max_iter:
         # args.holo_weight += inc
         c2s_amp_list, c2s_ph_list, amp_list, ph_list, prop_list = [], [], [], [], []
@@ -368,13 +386,13 @@ for i in tqdm(range(args.max_iter)):
             ph_list=torch.cat(ph_list, dim=0)
             prop_list=torch.cat(prop_list, dim=0)
             
-        writer.add_images('content', content_images[:8], i+1)
-        writer.add_images('style', style_images[:8], i+1)    
-        writer.add_images('c2s_amplitude', c2s_amp_list, i+1)
-        writer.add_images('c2s_phase', c2s_ph_list, i+1)
-        writer.add_images('c2s_amplitude_foc', amp_list, i+1)
-        writer.add_images('c2s_phase_foc', ph_list, i+1)
-        writer.add_images('prop', prop_list, i+1)
+        writer.add_images('image_content', content_images[:8], i+1)
+        writer.add_images('image_style', style_images[:8], i+1)    
+        writer.add_images('image_c2s_amplitude', c2s_amp_list, i+1)
+        writer.add_images('image_c2s_phase', c2s_ph_list, i+1)
+        writer.add_images('image_c2s_amplitude_foc', amp_list, i+1)
+        writer.add_images('image_c2s_phase_foc', ph_list, i+1)
+        writer.add_images('image_prop', prop_list, i+1)
         
         if (i + 1) % args.save_model_interval == 0: 
             state_dict = network.decoder.state_dict()
