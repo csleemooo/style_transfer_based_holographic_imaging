@@ -237,7 +237,7 @@ if args.data_name == 'MNIST':
     args.distance_normalize = 1.0
     args.distance_normalize_constant = 0
     
-    transform_img = transforms.Compose([transforms.Resize([64, 64]), transforms.Grayscale(), transforms.ToTensor()])
+    transform_img = transforms.Compose([transforms.Resize([64, 64]), transforms.Grayscale(), transforms.RandomCrop([192, 192]), transforms.ToTensor()])
     dataset = torchvision.datasets.MNIST(root='/mnt/mooo/CS/style transfer based holographic imaging/data', download=True, train=True, transform=transform_img)
     args.pixel_size = 1.5e-6
     args.phase_normalize = 1

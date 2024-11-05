@@ -227,6 +227,10 @@ elif args.data_name == 'polystyrene_bead':
     args.pixel_size = 6.5e-6
 
 model_forward = Holo_Generator(args).to(device)  # ASM, free-space propagator
+from torchmetrics.image import StructuralSimilarityIndexMeasure as SSIM
+from torchmetrics.image import PeakSignalNoiseRatio as PSNR
+ssim = SSIM()
+psnr = PSNR()
 
 for i in tqdm(range(1)):
     if args.data_name == 'MNIST':
@@ -251,13 +255,17 @@ for i in tqdm(range(1)):
             phase = unwrap(phase.detach())
             phase /= torch.max(phase)
             ph_foc = unwrap(ph_foc.detach())
+            ph_foc -= torch.min(ph_foc)
             ph_foc /= torch.max(ph_foc)
             
+            
+            print(psnr(ph_foc, gt_phase_tmp))
+            
             inputs = torch.cat([content_images[j:j+1], style_images[j:j+1]], dim=2)
-            reconstructed = torch.cat([amplitude, phase], dim=2)
-            output_phase =torch.cat([gt_phase_tmp, ph_foc], dim=3)
-            output_amp = torch.cat([gt_amp_tmp, amp_foc.detach()], dim=3)
-            outputs = torch.cat([output_amp, output_phase], dim=2)
-            total = torch.cat([inputs, reconstructed, outputs], dim=3)
+            recon_field = torch.cat([amplitude, phase], dim=2)
+            gt_field =torch.cat([gt_amp_tmp, gt_phase_tmp], dim=2)
+            recon_foc_field = torch.cat([amp_foc.detach(), ph_foc], dim=2)
+            
+            total = torch.cat([inputs, recon_field, gt_field, recon_foc_field, torch.abs(gt_field-recon_foc_field)], dim=3)
             output_name = output_dir / 'result_field{:d}{:s}'.format(j+1, args.save_ext)
             save_image(total, str(output_name))
