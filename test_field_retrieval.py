@@ -232,7 +232,9 @@ from torchmetrics.image import PeakSignalNoiseRatio as PSNR
 ssim = SSIM()
 psnr = PSNR()
 
-for i in tqdm(range(1)):
+psnr_list = []
+vis_idx = 0
+for i in tqdm(range(100)):
     if args.data_name == 'MNIST':
         style_holo, content_holo, distance_style, distance_content, gt_amplitude, gt_phase = mnist_loader(args, dataset, train_holo_list_style, train_holo_list_content, model_forward, device, return_gt=True)
     elif args.data_name == 'polystyrene_bead':
@@ -244,6 +246,8 @@ for i in tqdm(range(1)):
     content_images=torch.sqrt(content_holo).to(device).float().detach() #.repeat(1, 3, 1, 1)
 
     for j in range(min(args.batch_size, 8)):
+        vis_idx+=1
+        
         gt_phase_tmp = gt_phase[j:j+1]
         gt_amp_tmp = gt_amplitude[j:j+1]
         with torch.no_grad():
@@ -259,13 +263,20 @@ for i in tqdm(range(1)):
             ph_foc /= torch.max(ph_foc)
             
             
-            print(psnr(ph_foc, gt_phase_tmp))
-            
+            psnr_list.append(psnr(ph_foc, gt_phase_tmp).item())
+        
+        
+        if vis_idx%50 == 0:
             inputs = torch.cat([content_images[j:j+1], style_images[j:j+1]], dim=2)
             recon_field = torch.cat([amplitude, phase], dim=2)
             gt_field =torch.cat([gt_amp_tmp, gt_phase_tmp], dim=2)
             recon_foc_field = torch.cat([amp_foc.detach(), ph_foc], dim=2)
             
             total = torch.cat([inputs, recon_field, gt_field, recon_foc_field, torch.abs(gt_field-recon_foc_field)], dim=3)
-            output_name = output_dir / 'result_field{:d}{:s}'.format(j+1, args.save_ext)
+            output_name = output_dir / 'result_field{:d}{:s}'.format(vis_idx, args.save_ext)
             save_image(total, str(output_name))
+        if vis_idx == 500:
+            print(np.mean(psnr_list))
+            break
+    if vis_idx == 500:
+        break
