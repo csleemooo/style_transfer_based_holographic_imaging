@@ -7,7 +7,7 @@ from typing import Any, Callable, List, Optional, Tuple
 from torchvision import transforms
 import torch.nn.functional as F
 
-def mnist_loader(args, dataset, train_holo_list_style, train_holo_list_content, model_forward, device):
+def mnist_loader(args, dataset, train_holo_list_style, train_holo_list_content, model_forward, device, return_gt=False):
     transform = transforms.Compose([transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip(),
                                     transforms.RandomAffine(degrees=0, translate=[0.1, 0.1], fill=0.0)])
 
@@ -27,8 +27,10 @@ def mnist_loader(args, dataset, train_holo_list_style, train_holo_list_content, 
 
     style_holo = model_forward(amplitude, phase_style, distance_style).to(device).float().detach()
     content_holo = model_forward(amplitude, phase_content, distance_content).to(device).float().detach()
-    
-    return style_holo, content_holo, distance_style, distance_content
+    if return_gt:
+        return style_holo, content_holo, distance_style, distance_content, amplitude, phase_content
+    else:
+        return style_holo, content_holo, distance_style, distance_content
 
 def mnist_loader_test(args, dataset, holo_list_style, holo_list_content, model_forward, device, test_interpolation=False):
     transform = transforms.Compose([transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip(),
