@@ -153,7 +153,7 @@ parser.add_argument('--n_layer', type=int, default=4)
 # parser.add_argument('--style_weight', type=float, default=10.0)
 parser.add_argument('--unknown_distance', type=int, default=0)  # unknown distance for 1, known distance for 0 
 args = parser.parse_args()
-
+# test code
 ## experimental paramter for holography ##
 args.wavelength = 532e-9
 args.decoder ='./experiments/%s/%s_field_retrieval/decoder_iter_30000.pth.tar'%(args.data_name, args.exp_name)
