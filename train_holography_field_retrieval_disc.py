@@ -237,7 +237,7 @@ if args.data_name == 'MNIST':
     args.distance_normalize = 1.0
     args.distance_normalize_constant = 0
     
-    transform_img = transforms.Compose([transforms.Resize([64, 64]), transforms.Grayscale(), transforms.RandomCrop([192, 192]), transforms.ToTensor()])
+    transform_img = transforms.Compose([transforms.Resize([64, 64]), transforms.Grayscale(), transforms.ToTensor()])
     dataset = torchvision.datasets.MNIST(root='/mnt/mooo/CS/style transfer based holographic imaging/data', download=True, train=True, transform=transform_img)
     args.pixel_size = 1.5e-6
     args.phase_normalize = 1
@@ -247,8 +247,8 @@ elif args.data_name == 'polystyrene_bead':
         train_holo_list_style = [7]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(9, 13, 1)]
     else:
-        train_holo_list_style = [round(float(i), 3) for i in np.arange(7, 11, 1)]
-        train_holo_list_content = [round(float(i), 3) for i in np.arange(11, 14, 1)]
+        train_holo_list_style = [round(float(i), 3) for i in np.arange(7, 10, 1)]
+        train_holo_list_content = [round(float(i), 3) for i in np.arange(10, 14, 1)]
             
     args.distance_min = min(train_holo_list_style)
     args.distance_max = max(train_holo_list_content)
