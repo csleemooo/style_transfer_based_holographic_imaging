@@ -156,8 +156,8 @@ args = parser.parse_args()
 # test code #
 ## experimental paramter for holography ##
 args.wavelength = 532e-9
-args.decoder ='./experiments/%s/%s_field_retrieval/decoder_iter_30000.pth.tar'%(args.data_name, args.exp_name)
-args.decoder_ph ='./experiments/%s/%s_field_retrieval/decoder_ph_iter_30000.pth.tar'%(args.data_name, args.exp_name)
+args.decoder ='./experiments/%s/%s_field_retrieval/decoder_iter_80000.pth.tar'%(args.data_name, args.exp_name)
+args.decoder_ph ='./experiments/%s/%s_field_retrieval/decoder_ph_iter_80000.pth.tar'%(args.data_name, args.exp_name)
 
 device = torch.device(args.device)
 args.save_dir = args.save_dir + '/%s/%s_field_retrieval'%(args.data_name, args.exp_name)
@@ -204,6 +204,7 @@ if args.data_name == 'MNIST':
     dataset = torchvision.datasets.MNIST(root='/mnt/mooo/CS/style transfer based holographic imaging/data', download=True, train=True, transform=transform_img)
     args.pixel_size = 1.5e-6
     args.phase_normalize = 1
+    test_num = 100
     
 elif args.data_name == 'polystyrene_bead':
     if 'single' in args.exp_name:
@@ -219,12 +220,13 @@ elif args.data_name == 'polystyrene_bead':
     args.distance_normalize_constant = args.distance_min/args.distance_normalize
     args.phase_normalize = 2*pi
     
-    transform_img = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip()])
+    transform_img = transforms.Compose([transforms.ToTensor()])
     dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_style, return_distance=True)    
-    dataset_style = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
-    dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    dataset_style = iter(DataLoader(dataset, batch_size=args.batch_size, shuffle=True))
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='test', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
+    dataset_content = iter(DataLoader(dataset, batch_size=args.batch_size, shuffle=False))
     args.pixel_size = 6.5e-6
+    test_num = len(dataset_content)
 
 model_forward = Holo_Generator(args).to(device)  # ASM, free-space propagator
 from torchmetrics.image import StructuralSimilarityIndexMeasure as SSIM
@@ -236,18 +238,18 @@ mae = MAE()
 
 psnr_list, mae_list = [], []
 vis_idx = 0
-for i in tqdm(range(100)):
+for i in tqdm(range(test_num)):
     if args.data_name == 'MNIST':
         style_holo, content_holo, distance_style, distance_content, gt_amplitude, gt_phase = mnist_loader(args, dataset, train_holo_list_style, train_holo_list_content, model_forward, device, return_gt=True)
     elif args.data_name == 'polystyrene_bead':
-        [style_holo, distance_style], [content_holo, distance_content]  = next(iter(dataset_style)), next(iter(dataset_content))
+        [style_holo, distance_style], [content_holo, distance_content, gt_amplitude, gt_phase]  = next(dataset_style), next(dataset_content)
         distance_style = -args.distance_normalize_constant + distance_style.reshape([-1, 1, 1, 1]).to(args.device).float()/args.distance_normalize
         distance_content = -args.distance_normalize_constant + distance_content.reshape([-1, 1, 1, 1]).to(args.device).float()/args.distance_normalize
     
     style_images=torch.sqrt(style_holo).to(device).float().detach() #.repeat(1, 3, 1, 1)
     content_images=torch.sqrt(content_holo).to(device).float().detach() #.repeat(1, 3, 1, 1)
 
-    for j in range(min(args.batch_size, 8)):
+    for j in range(args.batch_size):
         vis_idx+=1
         
         gt_phase_tmp = gt_phase[j:j+1]
@@ -259,6 +261,7 @@ for i in tqdm(range(100)):
 
             gt_phase_tmp /= torch.max(gt_phase_tmp)
             phase = unwrap(phase.detach())
+            phase -= torch.min(phase)
             phase /= torch.max(phase)
             ph_foc = unwrap(ph_foc.detach())
             ph_foc -= torch.min(ph_foc)
@@ -268,7 +271,7 @@ for i in tqdm(range(100)):
             psnr_list.append(psnr(ph_foc, gt_phase_tmp).item())
             mae_list.append(mae(ph_foc, gt_phase_tmp).item())
         
-        if vis_idx%50 == 0:
+        if vis_idx%10 == 0:
             inputs = torch.cat([content_images[j:j+1], style_images[j:j+1]], dim=2)
             recon_field = torch.cat([amplitude, phase], dim=2)
             gt_field =torch.cat([gt_amp_tmp, gt_phase_tmp], dim=2)
@@ -281,5 +284,8 @@ for i in tqdm(range(100)):
             print(np.mean(psnr_list))
             print(np.mean(mae_list))
             break
+    else:
+        print(np.mean(psnr_list))
+        print(np.mean(mae_list))
     if vis_idx == 500:
         break

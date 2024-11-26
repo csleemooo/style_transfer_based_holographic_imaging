@@ -78,6 +78,8 @@ class Holo_loader(Dataset):
         self.return_distance = return_distance
         self.data_list=[]
         self.root_list=[]
+        self.image_set = image_set
+        self.root = root
 
         self.data_root = os.path.join(root, image_set, 'holography')
 
@@ -95,6 +97,13 @@ class Holo_loader(Dataset):
     def __getitem__(self, index: int):
 
         pth = os.path.join(self.data_root, self.data_list[index])
+        
+        gt_amplitude, gt_phase = None, None
+        if self.image_set == 'test':
+            fov_name = os.path.basename(pth)
+            gt_amplitude = self.transform(self.load_matfile(os.path.join(self.root, self.image_set, 'gt_amplitude', fov_name))['gt_amplitude'])
+            gt_phase = self.transform(self.load_matfile(os.path.join(self.root, self.image_set, 'gt_phase', fov_name))['gt_phase'])
+            
         distance =self.data_list[index].split("/")[0]
         distance = float(distance) if '.' in distance else int(distance)
         holo = self.load_matfile(pth)['holography']
@@ -103,8 +112,11 @@ class Holo_loader(Dataset):
             if self.transform is not None:
                 holo = self.transform(holo)
                 distance = torch.Tensor([distance])
-
-            return holo, distance
+                
+            if self.image_set == 'test':
+                return holo, distance, gt_amplitude, gt_phase
+            else:
+                return holo, distance
         else:
             if self.transform is not None:
                 holo = self.transform(holo)
