@@ -156,8 +156,8 @@ args = parser.parse_args()
 # test code #
 ## experimental paramter for holography ##
 args.wavelength = 532e-9
-args.decoder ='./experiments/%s/%s_field_retrieval/decoder_iter_10000.pth.tar'%(args.data_name, args.exp_name)
-args.decoder_ph ='./experiments/%s/%s_field_retrieval/decoder_ph_iter_10000.pth.tar'%(args.data_name, args.exp_name)
+args.decoder ='./experiments/%s/%s_field_retrieval/decoder_iter_80000.pth.tar'%(args.data_name, args.exp_name)
+args.decoder_ph ='./experiments/%s/%s_field_retrieval/decoder_ph_iter_80000.pth.tar'%(args.data_name, args.exp_name)
 
 device = torch.device(args.device)
 args.save_dir = args.save_dir + '/%s/%s_field_retrieval'%(args.data_name, args.exp_name)
