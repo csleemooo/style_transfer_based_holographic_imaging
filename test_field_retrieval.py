@@ -229,10 +229,12 @@ elif args.data_name == 'polystyrene_bead':
 model_forward = Holo_Generator(args).to(device)  # ASM, free-space propagator
 from torchmetrics.image import StructuralSimilarityIndexMeasure as SSIM
 from torchmetrics.image import PeakSignalNoiseRatio as PSNR
+from torchmetrics import MeanAbsoluteError as MAE
 ssim = SSIM()
 psnr = PSNR()
+mae = MAE()
 
-psnr_list = []
+psnr_list, mae_list = [], []
 vis_idx = 0
 for i in tqdm(range(100)):
     if args.data_name == 'MNIST':
@@ -264,7 +266,7 @@ for i in tqdm(range(100)):
             
             
             psnr_list.append(psnr(ph_foc, gt_phase_tmp).item())
-        
+            mae_list.append(mae(ph_foc, gt_phase_tmp).item())
         
         if vis_idx%50 == 0:
             inputs = torch.cat([content_images[j:j+1], style_images[j:j+1]], dim=2)
@@ -277,6 +279,7 @@ for i in tqdm(range(100)):
             save_image(total, str(output_name))
         if vis_idx == 500:
             print(np.mean(psnr_list))
+            print(np.mean(mae_list))
             break
     if vis_idx == 500:
         break
