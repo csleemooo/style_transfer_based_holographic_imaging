@@ -156,8 +156,8 @@ args = parser.parse_args()
 # test code #
 ## experimental paramter for holography ##
 args.wavelength = 532e-9
-args.decoder ='./experiments/%s/%s_field_retrieval/decoder_iter_80000.pth.tar'%(args.data_name, args.exp_name)
-args.decoder_ph ='./experiments/%s/%s_field_retrieval/decoder_ph_iter_80000.pth.tar'%(args.data_name, args.exp_name)
+args.decoder ='./experiments/%s/%s_field_retrieval/decoder_iter_10000.pth.tar'%(args.data_name, args.exp_name)
+args.decoder_ph ='./experiments/%s/%s_field_retrieval/decoder_ph_iter_10000.pth.tar'%(args.data_name, args.exp_name)
 
 device = torch.device(args.device)
 args.save_dir = args.save_dir + '/%s/%s_field_retrieval'%(args.data_name, args.exp_name)
@@ -280,12 +280,13 @@ for i in tqdm(range(test_num)):
             total = torch.cat([inputs, recon_field, gt_field, recon_foc_field, torch.abs(gt_field-recon_foc_field)], dim=3)
             output_name = output_dir / 'result_field{:d}{:s}'.format(vis_idx, args.save_ext)
             save_image(total, str(output_name))
+            
         if vis_idx == 500:
             print(np.mean(psnr_list))
             print(np.mean(mae_list))
             break
-    else:
-        print(np.mean(psnr_list))
-        print(np.mean(mae_list))
     if vis_idx == 500:
         break
+    
+print(np.mean(psnr_list))
+print(np.mean(mae_list))
