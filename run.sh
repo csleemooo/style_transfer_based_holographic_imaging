@@ -24,3 +24,4 @@ tensorboard --logdir="/mnt/mooo/CS/style transfer based holographic imaging/code
 python test_field_retrieval.py --device cpu
 
 python train_holography_field_retrieval_disc.py --data_name polystyrene_bead --save_dir ./experiments --log_dir ./logs --exp_name 241104_half_style_half_content_disc --holo_weight 10 --device cuda:1 --content_weight 0.0 --style_weight 10.0 --identity_weight 10 --unknown_distance 1 --batch_size 16
+python test_field_retrieval.py --data_name polystyrene_bead --exp_name single_style_disc --device cpu
