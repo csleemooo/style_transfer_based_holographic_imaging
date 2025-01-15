@@ -84,8 +84,13 @@ class Holo_loader(Dataset):
         self.data_root = os.path.join(root, image_set, 'holography')
 
         for d in holo_list:
-            tmp = [os.path.join('%d'%d, j) for j in os.listdir(os.path.join(self.data_root, '%d'%d))]
-            print('the # of diffraction patterns measured at %dmm: %d'%(d, len(tmp)))
+            if 'poly' in root:
+                tmp = [os.path.join('%d'%d, j) for j in os.listdir(os.path.join(self.data_root, '%d'%d))]
+                print('the # of diffraction patterns measured at %dmm: %d'%(d, len(tmp)))
+            else:
+                tmp = [os.path.join('%1.2f'%d, j) for j in os.listdir(os.path.join(self.data_root, '%1.2f'%d))]
+                print('the # of diffraction patterns measured at %1.2fmm: %d'%(d, len(tmp)))
+            
             self.data_list.extend(tmp)
 
         self.data_list = np.array(self.data_list)
@@ -106,6 +111,7 @@ class Holo_loader(Dataset):
             
         distance =self.data_list[index].split("/")[0]
         distance = float(distance) if '.' in distance else int(distance)
+        # print(distance)
         holo = self.load_matfile(pth)['holography']
 
         if self.return_distance:
