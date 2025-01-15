@@ -200,7 +200,7 @@ vgg.load_state_dict(state_dict)
 vgg_layer = 31 if args.n_layer==4 else 44
 vgg = nn.Sequential(*list(vgg.children())[:vgg_layer])
 
-args.image_size = 256 if args.data_name == 'polystyrene_bead' else 128
+args.image_size = 256 if args.data_name == 'polystyrene_bead' or args.data_name == 'VISEM' else 128
 disc = net.Discriminator(image_size=args.image_size, c_dim=2)
 op_disc = torch.optim.Adam(disc.parameters(), lr=args.lr)
 disc.train()
@@ -263,6 +263,24 @@ elif args.data_name == 'polystyrene_bead':
     dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     args.pixel_size = 6.5e-6
 
+elif args.data_name == 'VISEM':
+    args.pixel_size = 4.5e-6
+    if 'single' in args.exp_name:
+        train_holo_list_style = [2.0]
+        train_holo_list_content = [2.5, 3.0, 3.5, 4.0, 4.5]
+        
+    args.distance_min = min(train_holo_list_style)
+    args.distance_max = max(train_holo_list_content)
+    args.distance_normalize = args.distance_max - args.distance_min
+    args.distance_normalize_constant = args.distance_min/args.distance_normalize
+    args.phase_normalize = pi
+    
+    transform_img = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip()])
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/VISEM', image_set='train', transform=transform_img, holo_list=train_holo_list_style, return_distance=True)    
+    dataset_style = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/VISEM', image_set='train', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
+    dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+        
 model_forward = Holo_Generator(args).to(device)  # ASM, free-space propagator
 import lpips
 lpips_loss = lpips.LPIPS(net='vgg').to(device)
@@ -270,13 +288,14 @@ mse_loss = nn.MSELoss()
 for i in tqdm(range(args.max_iter)):
     if args.data_name == 'MNIST':
         style_holo, content_holo, distance_style, distance_content = mnist_loader(args, dataset, train_holo_list_style, train_holo_list_content, model_forward, device)
-    elif args.data_name == 'polystyrene_bead':
+    elif args.data_name == 'polystyrene_bead' or args.data_name == 'VISEM':
         [style_holo, distance_style], [content_holo, distance_content]  = next(iter(dataset_style)), next(iter(dataset_content))
         distance_style = -args.distance_normalize_constant + distance_style.reshape([-1, 1, 1, 1]).to(args.device).float()/args.distance_normalize
         distance_content = -args.distance_normalize_constant + distance_content.reshape([-1, 1, 1, 1]).to(args.device).float()/args.distance_normalize
     
     style_images=torch.sqrt(style_holo).to(device).float().detach() #.repeat(1, 3, 1, 1)
     content_images=torch.sqrt(content_holo).to(device).float().detach() #.repeat(1, 3, 1, 1)
+    # print(style_images.shape, content_images.shape)
     
     adjust_learning_rate(optimizer, iteration_count=i)
     adjust_learning_rate(op_disc, iteration_count=i)
@@ -294,6 +313,7 @@ for i in tqdm(range(args.max_iter)):
         loss_c, loss_s, c2s_amp, c2s_ph, style_re = network(content_images, style_images, field_retrieval=True)
         
     c2s_ph = c2s_ph*args.phase_normalize
+    # print(c2s_amp.shape, c2s_ph.shape, distance_content.shape, distance_style.shape)
     s2c_re = model_forward(c2s_amp, c2s_ph, distance_content-distance_style-args.distance_normalize_constant).sqrt()
     s2c_foc = model_forward(c2s_amp, c2s_ph, -distance_style -2*args.distance_normalize_constant, complex_number=True)
     
