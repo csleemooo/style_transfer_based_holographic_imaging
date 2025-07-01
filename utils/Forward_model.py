@@ -2,6 +2,7 @@ from .Angular_Spectrum_Method import ASM
 from torch import nn
 import torch.nn.functional as F
 import torch
+from utils.functions import unwrap as uw
 class Holo_Generator(nn.Module):
     def __init__(self, args):
         super(Holo_Generator, self).__init__()
@@ -12,7 +13,7 @@ class Holo_Generator(nn.Module):
         self.phase_normalize = args.phase_normalize
 
 
-    def forward(self, amplitude, phase, d, return_field=False, complex_number=False):
+    def forward(self, amplitude, phase, d, return_field=False, complex_number=False, unwrap=False):
 
         d = ((d+self.distance_normalize_constant)*self.distance_normalize)*1e-3
 
@@ -24,7 +25,14 @@ class Holo_Generator(nn.Module):
         # O_holo= center_crop(O_holo, h)
 
         if return_field:
-            return torch.abs(O_holo).float(), torch.angle(O_holo).float()
+            ph_prop = torch.angle(O_holo).float()
+            amp_prop = torch.abs(O_holo).float()
+            if unwrap:
+                ph_prop = uw(ph_prop)
+                return amp_prop, ph_prop
+            else:
+                return amp_prop, ph_prop
+        
         elif complex_number:
             return O_holo
         else:

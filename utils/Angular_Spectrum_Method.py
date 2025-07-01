@@ -1,3 +1,4 @@
+
 import numpy as np
 from math import pi
 import torch
@@ -25,8 +26,6 @@ def ASM(O, lamb, d, px, requires_grad=True, zero_padding=False): # torch version
         G_in = G_in.to(O.device)
 
     G_in.requires_grad_(requires_grad)
-
-    # print(G_in.shape)
     G_in = torch.exp(1j*2*pi*d*G_in)
 
     O_fft = torch_fft(O)
