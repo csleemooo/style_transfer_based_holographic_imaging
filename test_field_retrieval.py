@@ -259,13 +259,13 @@ for i in tqdm(range(test_num)):
 
             amp_foc, ph_foc = model_forward(amplitude, phase*args.phase_normalize, -distance_style[j:j+1]-2*args.distance_normalize_constant, return_field=True)
 
-            gt_phase_tmp /= torch.max(gt_phase_tmp)
+            gt_phase_tmp -= torch.mean(gt_phase_tmp)
             phase = unwrap(phase.detach())
-            phase -= torch.min(phase)
-            phase /= torch.max(phase)
+            phase -= torch.mean(phase)
+            # phase /= torch.max(phase)
             ph_foc = unwrap(ph_foc.detach())
-            ph_foc -= torch.min(ph_foc)
-            ph_foc /= torch.max(ph_foc)
+            ph_foc -= torch.mean(ph_foc)
+            # ph_foc /= torch.max(ph_foc)
             
             
             psnr_list.append(psnr(ph_foc, gt_phase_tmp).item())

@@ -4,6 +4,7 @@ import numpy as np
 
 from function import adaptive_instance_normalization as adain
 from function import calc_mean_std
+from net_autoencoder import Encoder
 
 class Discriminator(nn.Module):
     """Discriminator network with PatchGAN."""
@@ -31,22 +32,62 @@ class Discriminator(nn.Module):
         return out_src, out_cls.view(out_cls.size(0), out_cls.size(1))
 
 decoder = nn.Sequential(
-    # nn.ReflectionPad2d((1, 1, 1, 1)),
-    # nn.Conv2d(512, 512, (3, 3)),
-    # nn.ReLU(),
-    # nn.ReflectionPad2d((1, 1, 1, 1)),
-    # nn.Conv2d(512, 512, (3, 3)),
-    # nn.ReLU(),
-    # # nn.Upsample(scale_factor=2, mode='nearest'),
-    # nn.ConvTranspose2d(512, 512, 2, stride=2, padding=0),
-    # nn.ReLU(),
     nn.ReflectionPad2d((1, 1, 1, 1)),
     nn.Conv2d(512, 512, (3, 3)),
     nn.ReLU(),
     nn.ReflectionPad2d((1, 1, 1, 1)),
     nn.Conv2d(512, 256, (3, 3)),
     nn.ReLU(),
+    nn.ConvTranspose2d(256, 256, 2, stride=2, padding=0),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(256, 256, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(256, 256, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(256, 256, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(256, 128, (3, 3)),
+    nn.ReLU(),
     # nn.Upsample(scale_factor=2, mode='nearest'),
+    nn.ConvTranspose2d(128, 128, 2, stride=2, padding=0),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(128, 128, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(128, 64, (3, 3)),
+    nn.ReLU(),
+    # nn.Upsample(scale_factor=2, mode='nearest'),
+    nn.ConvTranspose2d(64, 64, 2, stride=2, padding=0),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(64, 64, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(64, 64, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(64, 2, (3, 3)),
+)
+
+decoder_large = nn.Sequential(
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(512, 512, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(512, 512, (3, 3)),
+    nn.ReLU(),
+    nn.ConvTranspose2d(512, 512, 2, stride=2, padding=0),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(512, 512, (3, 3)),
+    nn.ReLU(),
+    nn.ReflectionPad2d((1, 1, 1, 1)),
+    nn.Conv2d(512, 256, (3, 3)),
+    nn.ReLU(),
     nn.ConvTranspose2d(256, 256, 2, stride=2, padding=0),
     nn.ReLU(),
     nn.ReflectionPad2d((1, 1, 1, 1)),
@@ -143,32 +184,40 @@ vgg = nn.Sequential(
 class Net(nn.Module):
     def __init__(self, encoder, decoder, decoder_ph=None, distance_g=None):
         super(Net, self).__init__()
-        enc_layers = list(encoder.children())
-        self.enc_1 = nn.Sequential(*enc_layers[:4])  # input -> relu1_1
-        self.enc_2 = nn.Sequential(*enc_layers[4:11])  # relu1_1 -> relu2_1
-        self.enc_3 = nn.Sequential(*enc_layers[11:18])  # relu2_1 -> relu3_1
-        self.enc_4 = nn.Sequential(*enc_layers[18:31])  # relu3_1 -> relu4_1
-        # self.enc_5 = nn.Sequential(*enc_layers[31:44])  # relu4_1 -> relu5_1
+        
+        if isinstance(encoder, str):
+            enc = Encoder()
+            enc.load_state_dict(torch.load(encoder))
+            enc.eval()
+            enc_layers = list(enc.children())
+            self.enc_1 = nn.Sequential(*enc_layers[:1])  # input -> relu1_1
+            self.enc_2 = nn.Sequential(*enc_layers[1:4])  # relu1_1 -> relu2_1
+            self.enc_3 = nn.Sequential(*enc_layers[4:7])  # relu2_1 -> relu3_1
+            self.enc_4 = nn.Sequential(*enc_layers[7:10])  # relu3_1 -> relu4_1
+        else:
+            enc_layers = list(encoder.children())
+            self.enc_1 = nn.Sequential(*enc_layers[:4])  # input -> relu1_1
+            self.enc_2 = nn.Sequential(*enc_layers[4:11])  # relu1_1 -> relu2_1
+            self.enc_3 = nn.Sequential(*enc_layers[11:18])  # relu2_1 -> relu3_1
+            self.enc_4 = nn.Sequential(*enc_layers[18:31])  # relu3_1 -> relu4_1
+            if len(enc_layers) > 35:
+                self.enc_5 = nn.Sequential(*enc_layers[31:44])  # relu4_1 -> relu5_1
+        # 
         self.decoder = decoder
         self.decoder_ph = decoder_ph
         self.distance_g = distance_g
-        # self.distance_g =  nn.Sequential(nn.AdaptiveAvgPool2d((7, 7)),
-        #                                  nn.Linear(512 * 7 * 7, 4096),
-        #                                  nn.ReLU(True),
-        #                                  nn.Dropout(p=dropout),
-        #                                  nn.Linear(4096, 4096),
-        #                                  nn.ReLU(True),
-        #                                  nn.Dropout(p=dropout),
-        #                                  nn.Linear(4096, 1),
-        #                                  nn.Sigmoid())
         
         self.mse_loss = nn.MSELoss()
         
         self.eca = eca_layer(channel=512)
         self.n_layer = 0
         # fix the encoder
-        # for name in ['enc_1', 'enc_2', 'enc_3', 'enc_4', 'enc_5']:
-        for name in ['enc_1', 'enc_2', 'enc_3', 'enc_4']:
+        if len(enc_layers) > 35:
+            enc_list = ['enc_1', 'enc_2', 'enc_3', 'enc_4', 'enc_5']
+        else:
+            enc_list = ['enc_1', 'enc_2', 'enc_3', 'enc_4']
+            
+        for name in enc_list:
             self.n_layer += 1
             for param in getattr(self, name).parameters():
                 param.requires_grad = False
@@ -238,11 +287,23 @@ class Net(nn.Module):
         else:
             return loss_c, loss_s
         
-    def field_retrieval(self, content, style, alpha=1.0, unknown_distance=False):
+    def field_retrieval(self, content, style_feats, alpha=1.0, unknown_distance=False):
         assert 0 <= alpha <= 1
-        style_feats = self.encode(style)
+        
+
         content_feat = self.encode(content)
-        t = adain(content_feat, style_feats)
+        
+        size = content_feat.size()
+        if style_feats.shape[0]>2:  # multiple style method
+            style_mean, style_std = style_feats[:style_feats.shape[0]//2], style_feats[style_feats.shape[0]//2:]
+        else: # single style method
+            style_mean, style_std = style_feats[:1].repeat(content.shape[0], 1, 1, 1), style_feats[1:].repeat(content.shape[0], 1, 1, 1)
+            
+        content_mean, content_std = calc_mean_std(content_feat)
+        t = (content_feat - content_mean.expand(size)) / content_std.expand(size)
+        t = t * style_std.expand(size) + style_mean.expand(size)
+        
+        # t = adain(content_feat, style_feats)
         
         t = alpha * t + (1 - alpha) * content_feat
         # style4recon = self.eca(style_feats)
@@ -253,7 +314,10 @@ class Net(nn.Module):
         # g_t_phase = self.decoder_ph(t)
         
         if unknown_distance:
-            return g_t, g_t_phase, self.distance_g(calc_mean_std(content_feat.repeat(2, 1, 1, 1)))[:1, :] # self.distance_g(content_feat.repeat(2, 1, 1, 1))[:1, :]
+            if content_feat.shape[0] == 1:
+                return g_t, g_t_phase, self.distance_g(calc_mean_std(content_feat.repeat(2, 1, 1, 1)))[:1, :] # self.distance_g(content_feat.repeat(2, 1, 1, 1))[:1, :]
+            else:
+                return g_t, g_t_phase, self.distance_g(calc_mean_std(content_feat))
         else:
             return g_t, g_t_phase
 
@@ -291,16 +355,18 @@ class Distance_G(nn.Module):
     def __init__(self):
         super(Distance_G, self).__init__()
         in_fc = 512 * 2
-        dropout=0.1
         self.l1 = nn.Linear(in_features=in_fc, out_features=in_fc, bias=True)
-        self.b1 = nn.BatchNorm1d(num_features=in_fc)
-        # self.b1 = nn.Dropout(p=dropout)
+        self.b1 = nn.InstanceNorm1d(num_features=in_fc)
+        # self.b1 = nn.BatchNorm1d(num_features=in_fc)
+        self.d1 = nn.Dropout(p=0.5)
         self.l2 = nn.Linear(in_features=in_fc, out_features=in_fc, bias=True)
-        self.b2 = nn.BatchNorm1d(num_features=in_fc)
-        # self.b2 = nn.Dropout(p=dropout)
+        self.b2 = nn.InstanceNorm1d(num_features=in_fc)
+        # self.b2 = nn.BatchNorm1d(num_features=in_fc)
+        self.d2 = nn.Dropout(p=0.5)
         self.l3 = nn.Linear(in_features=in_fc, out_features=in_fc//2, bias=True)
-        self.b3 = nn.BatchNorm1d(num_features=in_fc//2)
-        # self.b3 = nn.Dropout(p=dropout)
+        self.b3 = nn.InstanceNorm1d(num_features=in_fc//2)
+        # self.b3 = nn.BatchNorm1d(num_features=in_fc//2)
+        self.d3 = nn.Dropout(p=0.5)
         self.relu = nn.ReLU()
 
         self.out=nn.Linear(in_features=in_fc//2, out_features=1)
@@ -315,11 +381,14 @@ class Distance_G(nn.Module):
         m, s = m.view(b, c), s.view(b, c)
 
         x = torch.cat([m , s], dim=1)
-        x = self.relu(self.b1(self.l1(x)))
+        # x = self.relu(self.b1(self.l1(x)))
+        x = self.relu(self.b1(self.d1(self.l1(x))))
         # x = self.relu(self.l1(x))
-        x = self.relu(self.b2(self.l2(x)))
+        # x = self.relu(self.b2(self.l2(x)))
+        x = self.relu(self.b2(self.d2(self.l2(x))))
         # x = self.relu(self.l2(x))
-        x = self.relu(self.b3(self.l3(x)))
+        # x = self.relu(self.b3(self.l3(x)))
+        x = self.relu(self.b3(self.d3(self.l3(x))))
         # x = self.relu(self.l3(x))
 
         out = F.sigmoid(self.out(x))

@@ -83,7 +83,8 @@ output_dir.mkdir(exist_ok=True, parents=True)
 device = torch.device(args.device)
 decoder = net.decoder
 vgg = net.vgg
-
+decoder[-1] = nn.Conv2d(64, 1, (3, 3))
+# print(vgg)
 state_dict = torch.load(args.vgg)
 state_dict['0.weight'] = state_dict['0.weight'].sum(dim=1, keepdim=True)
 vgg.load_state_dict(state_dict)
@@ -95,7 +96,11 @@ vgg.to(device)
 decoder.to(device)
 
 model_forward = Holo_Generator(args).to(device)  # ASM, free-space propagator
-
+from torchmetrics.image import StructuralSimilarityIndexMeasure as SSIM
+from torchmetrics.regression import MeanSquaredError as MSE
+from torchmetrics import NormalizedRootMeanSquaredError as MSE
+ssim = SSIM(data_range=1.0).to(device)
+mse = MSE(normalization="mean").to(device)
 if args.data_name == 'MNIST':
     if 'single' in args.exp_name:
         holo_list_style = [0.2]
@@ -107,7 +112,7 @@ if args.data_name == 'MNIST':
             holo_list_style = [round(float(i), 3) for i in np.arange(0.3, 0.6, 0.1)]
         holo_list_content = [round(float(i), 3) for i in np.arange(0.6, 0.9, 0.1)]
     transform_img = transforms.Compose([transforms.Resize([64, 64]), transforms.Grayscale(), transforms.ToTensor()])
-    dataset = torchvision.datasets.MNIST(root='./../../data', download=True, train=True, transform=transform_img)
+    dataset = torchvision.datasets.MNIST(root='/mnt/mooo/CS/style transfer based holographic imaging/data', download=True, train=True, transform=transform_img)
 
 elif args.data_name == 'polystyrene_bead':
     if 'single' in args.exp_name:
@@ -121,14 +126,14 @@ elif args.data_name == 'polystyrene_bead':
         holo_list_content = [round(float(i), 3) for i in np.arange(11, 14, 1)]
         
     transform_img = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip()])
-    dataset = Holo_loader(root='./../../data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=holo_list_style)    
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=holo_list_style)    
     dataset_style = iter(DataLoader(dataset, batch_size=1, shuffle=True))
-    dataset = Holo_loader(root='./../../data/polystyrene_bead_holo_only', image_set='test_content', transform=transform_img, holo_list=holo_list_content)    
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='test_content', transform=transform_img, holo_list=holo_list_content)    
     dataset_content = iter(DataLoader(dataset, batch_size=1, shuffle=True))
     
-for i in tqdm(range(4)):
+for i in tqdm(range(200)):
     if args.data_name == 'MNIST':
-        style_holo, content_holo, _, _ = mnist_loader_test(args, dataset, holo_list_style, holo_list_content, model_forward, device, test_interpolation=args.test_interpolation)
+        style_holo, content_holo, style_distance, content_ditance, gt_amplitude, gt_phase = mnist_loader_test(args, dataset, holo_list_style, holo_list_content, model_forward, device, test_interpolation=args.test_interpolation)
     elif args.data_name == 'polystyrene_bead':
         style_holo, content_holo = next(dataset_style), next(dataset_content)
     
@@ -137,12 +142,59 @@ for i in tqdm(range(4)):
 
     if args.test_interpolation:
         num_split=4
+        ssim_list = []
+        mse_list = []
         output = []
+        output_true = []
         for weights in [[1-i/num_split, i/num_split] for i in range(num_split+1)]:
             c2s_image = style_transfer(vgg, decoder, content_images, style_images, alpha=1.0, interpolation_weights=weights)
             output.append(c2s_image)
         else:
+            
+            if True:
+                style_distance = style_distance.to(device).float()
+                min_style_d, max_style_d = style_distance[:1], style_distance[1:]
+                for j in range(num_split+1):
+                    out_true = model_forward(gt_amplitude, gt_phase, min_style_d + j*(max_style_d-min_style_d)/num_split).to(device).float().detach().sqrt()
+                    output_true.append(out_true)
+                min_style_d -= 0.1
+                max_style_d += 0.1
+                N=30
+                for out_tmp in output:
+                    ssim_list.append([])
+                    mse_list.append([])
+                    # out_tmp = out_tmp[:, :, 16:112, 16:112]
+                    for j in range(N):
+                        out_true_tmp = model_forward(gt_amplitude, gt_phase, min_style_d + j*(max_style_d-min_style_d)/N).to(device).float().detach().sqrt()
+                        # print(out_true_tmp.shape, out_tmp.shape)
+                        # out_true_tmp = out_true_tmp[:, :, 16:112, 16:112]
+                        # print(out_true_tmp.shape, out_tmp.shape)
+                        mse_list[-1].append(mse(out_tmp, out_true_tmp).item())
+                        ssim_list[-1].append(ssim(out_tmp, out_true_tmp).item())
+                        
+                import matplotlib.pyplot as plt
+                plt.figure(1)
+                sx = [min_style_d.item() + j*(max_style_d.item()-min_style_d.item())/N for j in range(N)]
+                for s in ssim_list:
+                    plt.plot(sx, s, marker='o', markersize=4)
+                    
+                plt.tight_layout()
+                plt.savefig(output_dir / 'output_ssim{:d}{:s}'.format(i+1,args.save_ext))
+                plt.savefig(output_dir / 'output_ssim{:d}{:s}'.format(i+1,'.eps'))
+                plt.close()
+                plt.figure(1)
+                sx = [min_style_d.item() + j*(max_style_d.item()-min_style_d.item())/N for j in range(N)]
+                for s in mse_list:
+                    plt.plot(sx, s, marker='o', markersize=4)
+                    
+                plt.tight_layout()
+                plt.savefig(output_dir / 'output_mse{:d}{:s}'.format(i+1,args.save_ext))
+                plt.savefig(output_dir / 'output_mse{:d}{:s}'.format(i+1,'.eps'))
+                plt.close()
+                        
             output = torch.cat(output, dim=3)
+            output_true = torch.cat(output_true, dim=3)
+            output = torch.cat([output, output_true], dim=2)
             output_name = output_dir / 'style{:d}{:s}'.format(i+1, args.save_ext)
             save_image(style_images, str(output_name))
             output_name = output_dir / 'content{:d}{:s}'.format(i+1, args.save_ext)

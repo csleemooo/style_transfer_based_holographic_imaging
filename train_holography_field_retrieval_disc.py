@@ -20,6 +20,7 @@ import torch.nn.functional as F
 
 import net
 from function import adaptive_instance_normalization, coral
+from function import calc_mean_std
 import lpips
 
 import utils
@@ -97,8 +98,12 @@ def field_retrieval(network, content, style, alpha=1.0, unkonwn_distance=False):
         return amplitude, phase
 
 ####  code from https://github.com/yunjey/stargan/blob/master/solver.py   ####
-def cls_loss(logit, target):
-    return F.binary_cross_entropy_with_logits(logit, target, size_average=False)/logit.size(0)
+def cls_loss(logit, target, mode):
+    
+    if 'single' in mode:
+        return F.binary_cross_entropy_with_logits(logit, target, size_average=False)/logit.size(0)
+    else:
+        return F.cross_entropy(logit, target)
 
 def gradient_penalty(y, x, device):
     """Compute gradient penalty: (L2_norm(dy/dx) - 1)**2."""
@@ -139,6 +144,8 @@ parser.add_argument('--style_dir', default='./../', type=str,
                     help='Directory path to a batch of style images')
 parser.add_argument('--data_name', type=str, default='polystyrene_bead')
 parser.add_argument('--vgg', type=str, default='models/vgg_normalised.pth')
+parser.add_argument('--auto_enc', type=str, default='./experiments/polystyrene_bead/autoencoder_kernel_7_autoencoder/encoder_iter_80000.pth.tar')
+parser.add_argument('--autoencoder', type=int, default=0)
 parser.add_argument('--device', type=str, default='device:0')
 parser.add_argument('--exp_name', type=str, default='multi_style')
 # training options
@@ -150,16 +157,18 @@ parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--lr_decay', type=float, default=5e-5)
 parser.add_argument('--max_iter', type=int, default=80000)
 parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--style_weight', type=float, default=10.0)
-parser.add_argument('--content_weight', type=float, default=1.0)
-parser.add_argument('--tv_weight', type=float, default=10.0)
-parser.add_argument('--holo_weight', type=float, default=10.0)
-parser.add_argument('--cls_weight', type=float, default=1.0)
+parser.add_argument('--style_weight', type=float, default=3.5)
+parser.add_argument('--content_weight', type=float, default=0.0)
+parser.add_argument('--weight_gan', type=float, default=1.0)
+parser.add_argument('--tv_weight', type=float, default=6.3)
+parser.add_argument('--holo_weight', type=float, default=8.0)
+parser.add_argument('--cls_weight', type=float, default=0.0)
+# parser.add_argument('--identity_weight', type=float, default=7.4)
 parser.add_argument('--identity_weight', type=float, default=0.0)
 parser.add_argument('--n_threads', type=int, default=4)
 parser.add_argument('--n_layer', type=int, default=4)
 # parser.add_argument('--style_weight', type=float, default=10.0)
-parser.add_argument('--unknown_distance', type=int, default=0)  # unknown distance for 1, known distance for 0 
+parser.add_argument('--unknown_distance', type=int, default=1)  # unknown distance for 1, known distance for 0 
 parser.add_argument('--save_model_interval', type=int, default=10000)
 parser.add_argument('--vis_interval', type=int, default=1000)
 args = parser.parse_args()
@@ -182,33 +191,33 @@ if os.path.exists(args.log_dir):
 log_dir.mkdir(exist_ok=True, parents=True)
 writer = SummaryWriter(log_dir=str(log_dir))
 
+# load trained vgg19 parameters
+if args.autoencoder:
+    vgg = args.auto_enc
+else:
+    vgg = net.vgg
+
+    state_dict = torch.load(args.vgg)
+    state_dict['0.weight'] = state_dict['0.weight'].sum(dim=1, keepdim=True)
+    vgg.load_state_dict(state_dict)
+
+    vgg_layer = 31 if args.n_layer==4 else 44
+    vgg = nn.Sequential(*list(vgg.children())[:vgg_layer])
+
 import copy
-decoder = net.decoder
-decoder_ph = copy.deepcopy(net.decoder)
+if args.n_layer==4:
+    decoder = net.decoder
+    decoder_ph = copy.deepcopy(net.decoder)
+else:
+    decoder = net.decoder_large
+    decoder_ph = copy.deepcopy(net.decoder_large)
 if args.decoder is not None:
     decoder.load_state_dict(torch.load(args.decoder))
 else:
     decoder.apply(weight_init_xavier_uniform)
     decoder_ph.apply(weight_init_xavier_uniform)
 
-vgg = net.vgg
-
-state_dict = torch.load(args.vgg)
-state_dict['0.weight'] = state_dict['0.weight'].sum(dim=1, keepdim=True)
-vgg.load_state_dict(state_dict)
-
-vgg_layer = 31 if args.n_layer==4 else 44
-vgg = nn.Sequential(*list(vgg.children())[:vgg_layer])
-
-args.image_size = 256 if args.data_name == 'polystyrene_bead' or args.data_name == 'VISEM' else 128
-disc = net.Discriminator(image_size=args.image_size, c_dim=2)
-op_disc = torch.optim.Adam(disc.parameters(), lr=args.lr)
-disc.train()
-disc.to(device)
-style_label = torch.ones(size=(args.batch_size, )).to(device).long()
-content_label = torch.zeros(size=(args.batch_size, )).to(device).long()
-label = torch.cat([style_label, content_label], dim=0)
-label = label2onehot(label, dim=2).to(device)
+args.image_size = 256 if args.data_name == 'polystyrene_bead' or args.data_name == 'tissue_rectum' or args.data_name =='red_blood_cell' else 128
 
 from itertools import chain
 if args.unknown_distance:
@@ -245,7 +254,11 @@ if args.data_name == 'MNIST':
 elif args.data_name == 'polystyrene_bead':
     if 'single' in args.exp_name:
         train_holo_list_style = [7]
-        train_holo_list_content = [round(float(i), 3) for i in np.arange(9, 13, 1)]
+        
+        if 'large' in args.exp_name:
+            train_holo_list_content = [round(float(i), 3) for i in np.arange(15, 25, 2)]
+        else:
+            train_holo_list_content = [round(float(i), 3) for i in np.arange(9, 13, 1)]
     else:
         train_holo_list_style = [round(float(i), 3) for i in np.arange(7, 10, 1)]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(10, 14, 1)]
@@ -259,9 +272,60 @@ elif args.data_name == 'polystyrene_bead':
     transform_img = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip()])
     dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_style, return_distance=True)    
     dataset_style = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
+    
+    if 'diff_object' in args.exp_name:
+        args.distance_min = 20
+        args.distance_max = 26
+        dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/red_blood_cell', image_set='train', transform=transform_img, holo_list=[1.0], return_distance=True)    
+        dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    else:
+        dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
+        dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+        
+    args.pixel_size = 6.5e-6
+    args.distance_normalize = args.distance_max - args.distance_min
+    args.distance_normalize_constant = args.distance_min/args.distance_normalize
+        
+elif args.data_name == 'tissue_rectum':
+    if 'single' in args.exp_name:
+        train_holo_list_style = [7]
+        train_holo_list_content = [round(float(i), 3) for i in np.arange(11, 18, 2)]
+    else:
+        train_holo_list_style = [round(float(i), 3) for i in np.arange(7, 18, 2)]
+        train_holo_list_content = [round(float(i), 3) for i in np.arange(13, 18, 2)]
+            
+    args.distance_min = min(train_holo_list_style)
+    args.distance_max = max(train_holo_list_content)
+    args.distance_normalize = args.distance_max - args.distance_min
+    args.distance_normalize_constant = args.distance_min/args.distance_normalize
+    args.phase_normalize = 2*pi
+    
+    transform_img = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip()])
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/tissue_rectum', image_set='train', transform=transform_img, holo_list=train_holo_list_style, return_distance=True)    
+    dataset_style = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/tissue_rectum', image_set='train', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
     dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     args.pixel_size = 6.5e-6
+    
+    
+elif args.data_name == 'red_blood_cell':
+    if 'single' in args.exp_name:
+        train_holo_list_style = [22.2]
+        train_holo_list_content = [1.0]
+            
+    args.distance_min = 20
+    args.distance_max = 26
+    args.distance_normalize = args.distance_max - args.distance_min
+    args.distance_normalize_constant = args.distance_min/args.distance_normalize
+    args.phase_normalize = 2*pi
+    
+    transform_img = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip()])
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/red_blood_cell', image_set='train', transform=transform_img, holo_list=train_holo_list_style, return_distance=True)    
+    dataset_style = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/red_blood_cell', image_set='train', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
+    dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    args.pixel_size = 6.5e-6
+
 
 elif args.data_name == 'VISEM':
     args.pixel_size = 4.5e-6
@@ -280,22 +344,46 @@ elif args.data_name == 'VISEM':
     dataset_style = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/VISEM', image_set='train', transform=transform_img, holo_list=train_holo_list_content, return_distance=True)    
     dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-        
+
+
 model_forward = Holo_Generator(args).to(device)  # ASM, free-space propagator
+disc = net.Discriminator(image_size=args.image_size, c_dim=len(train_holo_list_style)+1)
+op_disc = torch.optim.Adam(disc.parameters(), lr=args.lr)
+disc.train()
+disc.to(device)
+
 import lpips
 lpips_loss = lpips.LPIPS(net='vgg').to(device)
 mse_loss = nn.MSELoss() 
+
 for i in tqdm(range(args.max_iter)):
     if args.data_name == 'MNIST':
         style_holo, content_holo, distance_style, distance_content = mnist_loader(args, dataset, train_holo_list_style, train_holo_list_content, model_forward, device)
-    elif args.data_name == 'polystyrene_bead' or args.data_name == 'VISEM':
+    elif args.data_name == 'polystyrene_bead' or args.data_name == 'tissue_rectum' or args.data_name == 'red_blood_cell':
         [style_holo, distance_style], [content_holo, distance_content]  = next(iter(dataset_style)), next(iter(dataset_content))
-        distance_style = -args.distance_normalize_constant + distance_style.reshape([-1, 1, 1, 1]).to(args.device).float()/args.distance_normalize
-        distance_content = -args.distance_normalize_constant + distance_content.reshape([-1, 1, 1, 1]).to(args.device).float()/args.distance_normalize
     
+    if 'single' in args.exp_name:
+        style_label = torch.ones(size=(args.batch_size, )).to(device).long()
+        content_label = torch.zeros(size=(args.batch_size, )).to(device).long()
+        label = torch.cat([style_label, content_label], dim=0)
+        label = label2onehot(label, dim=2).to(device)
+    else:
+        style_label = []
+        for dc in distance_style.squeeze():
+            for ds_idx in range(len(train_holo_list_style)):
+                # print(dc.item(), train_holo_list_style[ds_idx])
+                if round(dc.item(), 2) == train_holo_list_style[ds_idx]:
+                    style_label.append(ds_idx+1)
+        else:
+            style_label = torch.Tensor(style_label).to(device).long()
+            # print(style_label)
+        content_label = torch.zeros(size=(args.batch_size, )).to(device).long()
+        label = torch.cat([style_label, content_label], dim=0)
+            
     style_images=torch.sqrt(style_holo).to(device).float().detach() #.repeat(1, 3, 1, 1)
     content_images=torch.sqrt(content_holo).to(device).float().detach() #.repeat(1, 3, 1, 1)
-    # print(style_images.shape, content_images.shape)
+    distance_style = -args.distance_normalize_constant + distance_style.reshape([-1, 1, 1, 1]).to(args.device).float()/args.distance_normalize
+    distance_content = -args.distance_normalize_constant + distance_content.reshape([-1, 1, 1, 1]).to(args.device).float()/args.distance_normalize
     
     adjust_learning_rate(optimizer, iteration_count=i)
     adjust_learning_rate(op_disc, iteration_count=i)
@@ -326,27 +414,27 @@ for i in tqdm(range(args.max_iter)):
     fake_src, fake_cls = disc(x_fake.detach())
     
     loss_src = -torch.mean(real_src) + torch.mean(fake_src) 
-    loss_cls = cls_loss(real_cls, label)
+    loss_cls = cls_loss(real_cls, label, mode=args.exp_name)
     
     alph = torch.rand(x_real.size(0), 1, 1, 1).to(device)
     x_hat = (alph * x_real.data + (1 - alph) * x_fake.data).requires_grad_(True)
     out_src, _ = disc(x_hat)
     loss_gp = gradient_penalty(out_src, x_hat, device)*10
     
-    loss_disc = loss_src + loss_cls*args.cls_weight + loss_gp
+    loss_disc = loss_src*args.weight_gan + loss_cls*args.cls_weight + loss_gp
     
     loss_disc.backward()
     op_disc.step()
     
     ## train complex field generator  ##
-    
+
     fake_src, fake_cls = disc(x_fake)
     
     loss_identity = lpips_loss.forward(style_images.repeat(1, 3, 1, 1), style_re.repeat(1, 3, 1, 1)).mean() + mse_loss(style_images, style_re)
     loss_phy_con = lpips_loss.forward(content_images.repeat(1, 3, 1, 1), s2c_re.repeat(1, 3, 1, 1)).mean() + mse_loss(content_images, s2c_re)
     
-    loss_fake = -torch.mean(fake_src)
-    loss_cls = cls_loss(fake_cls, label)*args.cls_weight
+    loss_fake = -torch.mean(fake_src)*args.weight_gan
+    loss_cls = cls_loss(fake_cls, label, mode=args.exp_name)*args.cls_weight
 
 
     loss_identity = loss_identity*args.identity_weight
@@ -354,7 +442,7 @@ for i in tqdm(range(args.max_iter)):
     loss_s = args.style_weight * loss_s
     loss_phy_con = args.holo_weight*loss_phy_con
     loss_tv = tv_loss(s2c_foc, order=1)*args.tv_weight
-    loss = loss_c + loss_s + loss_phy_con + loss_identity + loss_tv + loss_fake + loss_cls
+    loss = loss_c + loss_s + loss_phy_con + loss_identity + loss_tv  + loss_fake + loss_cls
 
     optimizer.zero_grad()
     loss.backward()
@@ -373,20 +461,31 @@ for i in tqdm(range(args.max_iter)):
     if (i + 1) % args.vis_interval == 0 or (i + 1) % args.save_model_interval == 0 or (i + 1) == args.max_iter:
         # args.holo_weight += inc
         c2s_amp_list, c2s_ph_list, amp_list, ph_list, prop_list = [], [], [], [], []
+        
+        style_mean, style_std = calc_mean_std(network.encode(style_images))
+        
+        if 'single' in args.exp_name:
+            style_mean = style_mean.mean(dim=0, keepdim=True)
+            style_std = style_std.mean(dim=0, keepdim=True)
+            style_vector = torch.cat([style_mean, style_std], dim=0)
+        
         for j in range(min(args.batch_size, 8)):
+            if 'single' not in args.exp_name:
+                style_vector = torch.cat([style_mean[j:j+1], style_std[j:j+1]], dim=0)
+                
             with torch.no_grad():
                 if args.unknown_distance:
-                    amplitude, phase, distance_content = field_retrieval(network, content_images[j:j+1], style_images[j:j+1], 1.0, True)
+                    amplitude, phase, distance_content = field_retrieval(network, content_images[j:j+1], style_vector, 1.0, True)
                     # print(distance_content.shape)
                 else:
-                    amplitude, phase = field_retrieval(network, content_images[j:j+1], style_images[j:j+1], 1.0)
+                    amplitude, phase = field_retrieval(network, content_images[j:j+1], style_vector, 1.0)
                     
                 amp_foc, ph_foc = model_forward(amplitude, phase*args.phase_normalize, -distance_style[j:j+1]-2*args.distance_normalize_constant, return_field=True)
                 if args.unknown_distance:
                     prop=model_forward(amplitude, phase*args.phase_normalize, distance_content-distance_style[j:j+1]-args.distance_normalize_constant).sqrt()
                 else:
                     prop=model_forward(amplitude, phase*args.phase_normalize, distance_content[j:j+1]-distance_style[j:j+1]-args.distance_normalize_constant).sqrt()
-                    
+                        
                 c2s_amp_list.append(amplitude)
                 phase = unwrap(phase*args.phase_normalize)
                 phase /= torch.max(phase)
@@ -417,6 +516,7 @@ for i in tqdm(range(args.max_iter)):
         if (i + 1) % args.save_model_interval == 0: 
             state_dict = network.decoder.state_dict()
             state_dict_ph = network.decoder_ph.state_dict()
+            
             for key in state_dict.keys():
                 state_dict[key] = state_dict[key].to(torch.device('cpu'))
                 state_dict_ph[key] = state_dict_ph[key].to(torch.device('cpu'))
@@ -425,4 +525,11 @@ for i in tqdm(range(args.max_iter)):
                     'decoder_iter_{:d}.pth.tar'.format(i + 1))
             torch.save(state_dict_ph, save_dir /
                     'decoder_ph_iter_{:d}.pth.tar'.format(i + 1))
+            
+            if args.unknown_distance:
+                state_dict_distance = network.distance_g.state_dict()
+                for key in state_dict_distance.keys():
+                    state_dict_distance[key] = state_dict_distance[key].to(torch.device('cpu'))
+                torch.save(state_dict_distance, save_dir /
+                        'distance_g_iter_{:d}.pth.tar'.format(i + 1))
 writer.close()
