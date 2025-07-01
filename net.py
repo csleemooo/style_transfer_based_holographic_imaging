@@ -349,7 +349,7 @@ class eca_layer(nn.Module):
 
         return x * y.expand_as(x)
 
-import torch.nn.functional as F
+import torch.nn.functional as F 
 
 class Distance_G(nn.Module):
     def __init__(self):
