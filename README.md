@@ -14,5 +14,5 @@ The package development version is tested on Linux. The developmental version of
 
 # Comlex-valued object function retrieval on MNIST dataset 
 <p align = "center">
-<img src="/Figures/Mnist-result.png" width="800" height="800">
+<img src="/Figures/Mnist-result.png" width="800" height="600">
 </p>
