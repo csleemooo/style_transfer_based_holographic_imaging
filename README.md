@@ -10,7 +10,19 @@ Inline holographic imaging presents an ill-posed inverse problem of reconstructi
 ## Run demo
 ### Environements
 - Linux / RTX4090 / CUDA 12.4
-###
+### Clone
+```
+git clone https://github.com/csleemooo/style_transfer_based_holographic_imaging.git
+```
+Move to the cloned directory
+```
+cd style_transfer_based_holographic_imaging
+```
+### Install syste requirements
+```
+pip install -r requirements.txt
+```
+### Run test
 Test on MNIST dataset
 ```
 python test_field_retrieval_mnist.py --device cpu
