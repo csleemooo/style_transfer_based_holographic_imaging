@@ -7,20 +7,20 @@ Inline holographic imaging presents an ill-posed inverse problem of reconstructi
 <img src="/Figures/training.png" width="800" height="400">
 </p>
 
+## Run demo
 ### Environements
 - Linux / RTX4090 / CUDA 12.4
-
-### Run demo
+###
 Test on MNIST dataset
 ```
 python test_field_retrieval_mnist.py --device cpu
 ```
-The reconstructed results will be saved at [SAVE_DIR]/[EXP_name]. defult: ./output/MNIST_test
+The reconstructed results of complex-valued object function and object-to-sensor distance of input diffraction patterns will be saved at [SAVE_DIR]/[EXP_name]. defult: ./output/MNIST_test
 
 ### Comlex-valued object function retrieval on MNIST dataset 
 <p align = "center">
 <img src="/Figures/Mnist-result.png" width="800" height="600">
 </p>
 
-### Acknwoledgements
+## Acknwoledgements
 This repository is implemented based on repository of [AdaIN](https://github.com/naoto0804/pytorch-AdaIN).
