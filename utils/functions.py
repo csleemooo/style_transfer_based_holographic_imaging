@@ -2,6 +2,33 @@ import numpy as np
 from skimage.restoration import unwrap_phase
 import torch
 
+def style_transfer(vgg, decoder, content, style, alpha=1.0,
+                   interpolation_weights=None):
+    assert (0.0 <= alpha <= 1.0)
+    content_f = vgg(content)
+    style_f = vgg(style)
+    if interpolation_weights:
+        _, C, H, W = content_f.size()
+        feat = torch.FloatTensor(1, C, H, W).zero_().to(device)
+        base_feat = adaptive_instance_normalization(content_f, style_f)
+        for i, w in enumerate(interpolation_weights):
+            feat = feat + w * base_feat[i:i + 1]
+        content_f = content_f[0:1]
+    else:
+        feat = adaptive_instance_normalization(content_f, style_f)
+    feat = feat * alpha + content_f * (1 - alpha)
+    return decoder(feat)
+
+def field_retrieval(network, content, style_vector, alpha=1.0, unkonwn_distance=False):
+    assert (0.0 <= alpha <= 1.0)
+    if unkonwn_distance:
+        amplitude, phase, distance_content = network.field_retrieval(content, style_vector, alpha, unkonwn_distance)
+        return amplitude, phase, distance_content.view(-1, 1, 1, 1)
+    else:
+        amplitude, phase = network.field_retrieval(content, style_vector, alpha)
+        return amplitude, phase
+    
+
 def tv_loss(img, norm=False, order=1):
     dh = img[:, :, 1:, :] - img[:, :, :-1, :]
     dw = img[:, :, :, 1:] - img[:, :, :, :-1]
