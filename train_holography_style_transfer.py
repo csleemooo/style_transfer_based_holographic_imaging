@@ -16,7 +16,7 @@ import torchvision
 from torchvision import transforms
 from tqdm import tqdm
 import torch.nn.functional as F
-
+  
 import net
 from sampler import InfiniteSamplerWrapper
 from function import adaptive_instance_normalization, coral
@@ -79,15 +79,16 @@ parser.add_argument('--content_weight', type=float, default=1.0)
 parser.add_argument('--n_threads', type=int, default=4)
 parser.add_argument('--save_model_interval', type=int, default=10000)
 parser.add_argument('--vis_interval', type=int, default=1000)
+
+parser.add_argument('--wavelength', type=float, default=532e-9)
+parser.add_argument('--pixel_size', type=float, default=1.5e-6)
+parser.add_argument('--phase_normalize', type=float, default=1.0)
+parser.add_argument('--distance_normalize', type=float, default=1.0)
+parser.add_argument('--distance_normalize_constant', type=float, default=0.0)
+
 args = parser.parse_args()
 
 ## experimental paramter for holography ##
-
-args.wavelength = 532e-9
-args.pixel_size = 1.5e-6
-args.phase_normalize = 1
-args.distance_normalize = 1.0
-args.distance_normalize_constant = 0
 
 device = torch.device(args.device)
 args.save_dir = args.save_dir + '/%s/%s_style_transfer'%(args.data_name, args.exp_name)
@@ -121,30 +122,13 @@ if args.data_name == 'MNIST':
     elif 'half_style' in args.exp_name:
         train_holo_list_style = [round(float(i), 3) for i in np.arange(0.3, 0.6, 0.1)]
         train_holo_list_content = [round(float(i), 3) for i in np.arange(0.6, 0.9, 0.1)]
-    else:
-        train_holo_list_style = [round(float(i), 3) for i in np.arange(0.3, 0.9, 0.1)]
-        train_holo_list_content = [round(float(i), 3) for i in np.arange(0.3, 0.9, 0.1)]
+        
     transform_img = transforms.Compose([transforms.Resize([64, 64]), transforms.Grayscale(), transforms.ToTensor()])
     dataset = torchvision.datasets.MNIST(root='/mnt/mooo/CS/style transfer based holographic imaging/data', download=True, train=True, transform=transform_img)
 
-elif args.data_name == 'polystyrene_bead':
-    if 'single' in args.exp_name:
-        train_holo_list_style = [7]
-        train_holo_list_content = [round(float(i), 3) for i in np.arange(9, 13, 1)]
-    else:
-        train_holo_list_style = [round(float(i), 3) for i in np.arange(7, 11, 1)]
-        train_holo_list_content = [round(float(i), 3) for i in np.arange(11, 14, 1)]
-    transform_img = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(), transforms.RandomVerticalFlip()])
-    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_style)    
-    dataset_style = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-    dataset = Holo_loader(root='/mnt/mooo/CS/style transfer based holographic imaging/data/data/polystyrene_bead_holo_only', image_set='train', transform=transform_img, holo_list=train_holo_list_content)    
-    dataset_content = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     
 for i in tqdm(range(args.max_iter)):
-    if args.data_name == 'MNIST':
-        style_holo, content_holo, _, _ = mnist_loader(args, dataset, train_holo_list_style, train_holo_list_content, model_forward, device)
-    elif args.data_name == 'polystyrene_bead':
-        style_holo, content_holo = next(iter(dataset_style)), next(iter(dataset_content))
+    style_holo, content_holo, _, _ = mnist_loader(args, dataset, train_holo_list_style, train_holo_list_content, model_forward, device)
     
     style_images=torch.sqrt(style_holo).to(device).float() #.repeat(1, 3, 1, 1)
     content_images=torch.sqrt(content_holo).to(device).float() #.repeat(1, 3, 1, 1)
