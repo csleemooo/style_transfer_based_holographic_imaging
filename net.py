@@ -4,7 +4,6 @@ import numpy as np
 
 from function import adaptive_instance_normalization as adain
 from function import calc_mean_std
-from net_autoencoder import Encoder
 
 class Discriminator(nn.Module):
     """Discriminator network with PatchGAN."""
@@ -32,56 +31,6 @@ class Discriminator(nn.Module):
         return out_src, out_cls.view(out_cls.size(0), out_cls.size(1))
 
 decoder = nn.Sequential(
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(512, 512, (3, 3)),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(512, 256, (3, 3)),
-    nn.ReLU(),
-    nn.ConvTranspose2d(256, 256, 2, stride=2, padding=0),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(256, 256, (3, 3)),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(256, 256, (3, 3)),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(256, 256, (3, 3)),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(256, 128, (3, 3)),
-    nn.ReLU(),
-    # nn.Upsample(scale_factor=2, mode='nearest'),
-    nn.ConvTranspose2d(128, 128, 2, stride=2, padding=0),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(128, 128, (3, 3)),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(128, 64, (3, 3)),
-    nn.ReLU(),
-    # nn.Upsample(scale_factor=2, mode='nearest'),
-    nn.ConvTranspose2d(64, 64, 2, stride=2, padding=0),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(64, 64, (3, 3)),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(64, 64, (3, 3)),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(64, 2, (3, 3)),
-)
-
-decoder_large = nn.Sequential(
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(512, 512, (3, 3)),
-    nn.ReLU(),
-    nn.ReflectionPad2d((1, 1, 1, 1)),
-    nn.Conv2d(512, 512, (3, 3)),
-    nn.ReLU(),
-    nn.ConvTranspose2d(512, 512, 2, stride=2, padding=0),
     nn.ReflectionPad2d((1, 1, 1, 1)),
     nn.Conv2d(512, 512, (3, 3)),
     nn.ReLU(),
@@ -209,9 +158,7 @@ class Net(nn.Module):
         
         self.mse_loss = nn.MSELoss()
         
-        self.eca = eca_layer(channel=512)
         self.n_layer = 0
-        # fix the encoder
         if len(enc_layers) > 35:
             enc_list = ['enc_1', 'enc_2', 'enc_3', 'enc_4', 'enc_5']
         else:
@@ -256,13 +203,11 @@ class Net(nn.Module):
         t = adain(content_feat, style_feats[-1])
         t = alpha * t + (1 - alpha) * content_feat
 
-        # style4recon = self.eca(style_feats[-1])
 
         style_re = self.decoder(style_feats[-1])[:, :1]
         g_t = self.decoder(t)  # content diffraction pattern -> style diffraction pattern
         g_t_phase = g_t[:, 1:]
         g_t = g_t[:, :1]
-        # g_t = self.decoder(torch.cat([t, style4recon], dim=1))  # content diffraction pattern -> style diffraction pattern
         g_t_feats = self.encode_with_intermediate(g_t)
 
         loss_c = self.calc_content_loss(g_t_feats[-1], t)  # calculate content loss
@@ -270,17 +215,10 @@ class Net(nn.Module):
         for i in range(1, self.n_layer):
             loss_s += self.calc_style_loss(g_t_feats[i], style_feats[i])
             
-        if field_retrieval:
-            # g_t_phase = self.decoder_ph(t)
-            # g_t_feats = self.encode_with_intermediate(g_t_phase)  # calculate style loss for phase
-            # for i in range(self.n_layer):
-            #     loss_s += self.calc_style_loss(g_t_feats[i], style_feats[i])
-            
+        if field_retrieval:           
             if unkonwn_distance:
                 d_content = self.distance_g(calc_mean_std(content_feat))
                 d_style = self.distance_g(calc_mean_std(style_feats[-1]))
-                # d_content = self.distance_g(content_feat)
-                # d_style = self.distance_g(style_feats[-1])
                 return loss_c, loss_s, g_t, g_t_phase, style_re, d_content, d_style
             else:    
                 return loss_c, loss_s, g_t, g_t_phase, style_re
@@ -322,32 +260,6 @@ class Net(nn.Module):
             return g_t, g_t_phase
 
 
-from torch.nn.parameter import Parameter
-
-class eca_layer(nn.Module):
-    """Constructs a ECA module.
-
-    Args:
-        channel: Number of channels of the input feature map
-        k_size: Adaptive selection of kernel size
-    """
-    def __init__(self, channel, k_size=3):
-        super(eca_layer, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False) 
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        # feature descriptor on the global spatial information
-        y = self.avg_pool(x)
-
-        # Two different branches of ECA module
-        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
-
-        # Multi-scale information fusion
-        y = self.sigmoid(y)
-
-        return x * y.expand_as(x)
 
 import torch.nn.functional as F 
 
