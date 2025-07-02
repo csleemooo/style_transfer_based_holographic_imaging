@@ -7,10 +7,7 @@ Inline holographic imaging presents an ill-posed inverse problem of reconstructi
 </p>
 
 ## Environements
-The package development version is tested on Linux. The developmental version of the package has been tested on the following systems and drivers.
-- Linux
-- CUDA 12.4
-- RTX4090
+- Linux / RTX4090 / CUDA 12.4
 
 # Comlex-valued object function retrieval on MNIST dataset 
 <p align = "center">
