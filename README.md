@@ -22,4 +22,4 @@ The reconstructed results will be saved at [SAVE_DIR]/[EXP_name]. defult: ./outp
 </p>
 
 ## Acknwoledgements
-This repository is implemented based on official repository of [AdaIN](https://github.com/naoto0804/pytorch-AdaIN).
+This repository is implemented based on repository of [AdaIN](https://github.com/naoto0804/pytorch-AdaIN).
