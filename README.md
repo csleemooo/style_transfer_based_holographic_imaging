@@ -23,7 +23,7 @@ Move to the cloned directory
 ```
 cd style_transfer_based_holographic_imaging
 ```
-### Install syste requirements
+### Install system requirements
 ```
 pip install -r requirements.txt
 ```
