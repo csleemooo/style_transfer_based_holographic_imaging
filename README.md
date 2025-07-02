@@ -1,6 +1,7 @@
 ## Physics-Aware Style Transfer for Adaptive Holographic Reconstruction 
 
-We provied pytorch(python) implementations of **Physics-Aware Style Transfer for Adaptive Holographic Reconstruction**. This code was written by **Chanseok Lee**.
+We provied pytorch(python) implementations of **Physics-Aware Style Transfer for Adaptive Holographic Reconstruction**. 
+This code was written by **Chanseok Lee**.
 Last update: 2025.07.02
 
 ### Abstract
