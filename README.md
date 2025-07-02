@@ -1,4 +1,8 @@
 ## Physics-Aware Style Transfer for Adaptive Holographic Reconstruction 
+
+We provied pytorch(python) implementations of **Physics-Aware Style Transfer for Adaptive Holographic Reconstruction **. This code was written by **Chanseok Lee**.
+Last update: 2025.07.02
+
 ### Abstract
 Inline holographic imaging presents an ill-posed inverse problem of reconstructing objects’ complex amplitude from recorded diffraction patterns. Although recent deep learning approaches have shown promise over classical phase retrieval algorithms, they often require high-quality ground truth datasets of complex amplitude maps to achieve a statistical inverse mapping operation between the two domains. Here, we present a physics-aware style transfer approach that interprets the object-to-sensor distance as an implicit style within diffraction patterns. Using the style domain as the intermediate domain to construct cyclic image translation, we show that the inverse mapping operation can be learned in an adaptive manner only with datasets composed of intensity measurements. We further demonstrate its biomedical applicability by reconstructing the morphology of dynamically flowing red blood cells, highlighting its potential for real-time, label-free imaging. As a framework that leverages physical cues inherently embedded in measurements, the presented method offers a practical learning strategy for imaging applications where ground truth is difficult or impossible to obtain.
 
