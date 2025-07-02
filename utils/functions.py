@@ -44,13 +44,19 @@ def tv_loss(img, norm=False, order=1):
 def unwrap(x):
     
     x = x.cpu().detach().numpy()
-    if x.ndim>2:
-        x = x.squeeze()
+    unwrapped = []
     
-    x = unwrap_phase(x)
-    x = torch.from_numpy(x).unsqueeze(0).unsqueeze(0)
-    
-    return x
+    for i in range(x.shape[0]):
+        ph = x[i]
+        if ph.ndim>2:
+            ph = ph.squeeze()
+        
+        ph = unwrap_phase(ph)
+        ph = torch.from_numpy(ph).unsqueeze(0).unsqueeze(0)
+        unwrapped.append(ph)
+    else:
+        unwrapped = torch.cat(unwrapped, dim=0)
+    return unwrapped
 
 def center_crop(H, size):
     batch, channel, Nh, Nw = H.size()

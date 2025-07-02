@@ -1,8 +1,9 @@
 import argparse
 from pathlib import Path
 import shutil
-
+import copy
 import os
+from math import pi
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 import numpy as np
@@ -27,8 +28,6 @@ from utils.Forward_model import Holo_Generator
 from utils.functions import unwrap, tv_loss, field_retrieval
 from utils.Data_loader import *
 from function import adaptive_instance_normalization, coral, calc_mean_std
-
-from math import pi
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -66,8 +65,6 @@ device = torch.device(args.device)
 args.save_dir = args.save_dir + '/%s'%args.exp_name
 output_dir = Path(args.save_dir)
 output_dir.mkdir(exist_ok=True, parents=True)
-
-import copy
 
 #### Trained model parameters / extracted representative style vector ####
 args.decoder = os.path.join(args.decoder_root, 'decoder_iter_80000.pth.tar')
