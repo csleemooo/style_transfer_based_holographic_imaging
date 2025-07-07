@@ -40,4 +40,4 @@ The reconstructed results of complex-valued object function and object-to-sensor
 </p>
 
 ## Acknwoledgements
-This repository is implemented based on repository of [AdaIN](https://github.com/naoto0804/pytorch-AdaIN).
+This repository is implemented based on the repository of [AdaIN](https://github.com/naoto0804/pytorch-AdaIN).
